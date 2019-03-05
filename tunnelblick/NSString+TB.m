@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2012, 2014 Jonathan K. Bullard. All rights reserved.
+ * Copyright (c) 2011, 2012, 2014, 2018 Jonathan K. Bullard. All rights reserved.
  *
  *  This file is part of Tunnelblick.
  *
@@ -23,12 +23,93 @@
 
 #import "NSString+TB.h"
 
+void appendLog(NSString * entry);
 
 @implementation NSString(TB)
 
 -(NSComparisonResult) caseInsensitiveNumericCompare: (NSString*) theString {
     
     return [self compare: theString options: NSCaseInsensitiveSearch | NSNumericSearch];
+}
+
+-(NSComparisonResult) versionCompare: (NSString *) other {
+
+	// Compares two version strings, each of the form a.b.c...
+	// Pads on the right with ".0" if necessary, so 1 and 1.0 are considered the same.
+	
+	// Separate each string into its components
+ 	NSMutableArray * selfParts  = [[[self  componentsSeparatedByString: @"."] mutableCopy] autorelease];
+	NSMutableArray * otherParts = [[[other componentsSeparatedByString: @"."] mutableCopy] autorelease];
+
+	// Force them to have the same number of components by appending ".0" as needed
+	while (  [selfParts count] < [otherParts count]  ) {
+		[selfParts addObject: @"0"];
+	}
+	while (  [otherParts count] < [selfParts count]  ) {
+		[otherParts addObject: @"0"];
+	}
+
+	// Compare the components until there's a mismatch
+	NSUInteger ix;
+	for (  ix=0; ix<[selfParts count]; ix++  ) {
+
+		NSComparisonResult r = [[selfParts objectAtIndex: ix] compare: [otherParts objectAtIndex: ix] options: NSNumericSearch];
+		
+		if (  r == NSOrderedSame  ) {
+
+			continue;		// Component is the same, test the next component
+		}
+		
+		return r;			// Component is different, return indicating the difference
+	}
+
+	return NSOrderedSame;	// All components are the same
+}
+
+-(NSComparisonResult) tunnelblickVersionCompare: (NSString *) other {
+
+	// Compares Tunnelblick version numbers such as 3.4.5 and 3.4.5beta03.
+	//
+	// (Works for the old 3.0b9 - 3.0b28 version numbers, too, because all of them are 3.0bNN)
+	//
+	// MAY NOT WORK for a version number that contains 'beta' two or more times, so it logs that. (We don't do that, anyway!)
+	
+	if (  ! other  ) {
+		return NSOrderedDescending;	// Anything is larger than nil
+	}
+	
+	if (  [other isEqualToString: self]  ) {
+		return NSOrderedSame;
+	}
+	
+	NSArray * selfParts  = [self  componentsSeparatedByString: @"beta"];
+	NSArray * otherParts = [other componentsSeparatedByString: @"beta"];
+	NSComparisonResult r = [[selfParts firstObject] versionCompare: [otherParts firstObject]];
+	if (  r != NSOrderedSame  ) {
+		return r;	// 1 < 2 or 2 > 1
+	}
+	
+	if (   ([selfParts  count] > 2)
+		|| ([otherParts count] > 2)  ) {
+		appendLog([NSString stringWithFormat: @"One or more version numbers has 'beta' more than once: '%@' and '%@'", self, other]);
+	}
+	
+	// Everything before 'beta' (if it is present) is the same
+	
+	if (  [selfParts count] == 1  ) {
+		if (  [otherParts count] == 1  ) {
+			return NSOrderedSame;			// 1.2.3 == 1.2.3 (neither has 'beta')
+		}
+		
+		return NSOrderedDescending;			// 1.2.3 > 1.2.3betaANYTHING
+	}
+	
+	if (  [otherParts count] == 1  ) {
+		return NSOrderedAscending;			// 1.2.3betaANYTHING < 1.2.3
+	}
+	
+	// 1.2.3betaABC and 1.2.3betaDEF, so compare ABC to DEF
+	return [[selfParts objectAtIndex: 1] compare: [otherParts objectAtIndex: 1] options: NSNumericSearch];
 }
 
 -(BOOL) containsOnlyCharactersInString: (NSString *) allowed {
@@ -54,12 +135,12 @@
     NSString * edition = [self substringFromIndex: rng.location + 1];
     
     if (  ! [edition containsOnlyCharactersInString: @"0123456789"]  ) {
-        NSLog(@"Invalid edition (illegal characters) in '%@'", self);
+        appendLog([NSString stringWithFormat: @"Invalid edition (illegal characters) in '%@'", self]);
         return nil;
     }
     
     if (  [edition length] == 0  ) {
-        NSLog(@"Invalid edition (empty string)");
+        appendLog(@"Invalid edition (empty string)");
         return nil;
     }
     
@@ -85,13 +166,17 @@
 
 -(unsigned) unsignedIntValue {
     
-    int i = [self intValue];
+    long long i = [self longLongValue];
     if (  i < 0  ) {
-        NSLog(@"unsignedIntValue: Negative value %d is invalid in this context", i);
+        appendLog([NSString stringWithFormat: @"unsignedIntValue: Negative value %lld is invalid in this context", i]);
         return UINT_MAX;
     }
+	if (  i > UINT_MAX  ) {
+		appendLog([NSString stringWithFormat: @"unsignedIntValue: Value %lld is too large to fit in an unsigned int", i]);
+		return UINT_MAX;
+	}
     
-    return (unsigned) i;
+    return (unsigned int) i;
 }
 
 @end

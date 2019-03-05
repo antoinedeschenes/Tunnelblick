@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, 2012, 2013, 2015, 2017 Jonathan K. Bullard. All rights reserved.
+ * Copyright 2011, 2012, 2013, 2015, 2017, 2018 Jonathan K. Bullard. All rights reserved.
  *
  *  This file is part of Tunnelblick.
  *
@@ -26,25 +26,39 @@
 
 @interface UtilitiesView : NSView {
 
-    IBOutlet TBButton            * utilitiesKillAllOpenVpnButton;
-	IBOutlet NSProgressIndicator * killAllOpenVPNProgressIndicator;
-    
+    IBOutlet TBButton            * utilitiesQuitAllOpenVpnButton;
+	IBOutlet NSTextFieldCell     * utilitiesQuitAllOpenVpnStatusTFC;
+	IBOutlet NSTextField         * utilitiesQuitAllOpenVpnStatusTF;
+
     IBOutlet TBButton            * consoleLogToClipboardButton;
 	IBOutlet NSProgressIndicator * consoleLogToClipboardProgressIndicator;
 
+	IBOutlet TBButton            * utilitiesExportTunnelblickSetupButton;
+	IBOutlet NSProgressIndicator * utilitiesExportTunnelblickSetupProgressIndicator;
+	
     IBOutlet TBButton           * utilitiesOpenUninstallInstructionsButton;
 	
     IBOutlet TBButton           * utilitiesRunEasyRsaButton;
     IBOutlet NSTextFieldCell    * utilitiesEasyRsaPathTFC;
  
     IBOutlet NSButton           * utilitiesHelpButton;
+
+	NSTimer                     * utilitiesQuitAllOpenvpnStatusTextTimer; // Used to erase status text after 5 seconds
 }
 
-TBPROPERTY_READONLY(TBButton *,            utilitiesKillAllOpenVpnButton)
-TBPROPERTY_READONLY(NSProgressIndicator *, killAllOpenVPNProgressIndicator)
+-(void) setUtilitiesQuitAllOpenVpnButtonTitle: (NSString *) title;
+
+-(void) setUtilitiesQuitAllOpenvpnStatusText: (NSString *) text;
+
+TBPROPERTY_READONLY(TBButton *,            utilitiesQuitAllOpenVpnButton)
+TBPROPERTY_READONLY(NSTextFieldCell *,	   utilitiesQuitAllOpenVpnStatusTFC)
+TBPROPERTY_READONLY(NSTextField *,		   utilitiesQuitAllOpenVpnStatusTF)
 
 TBPROPERTY_READONLY(TBButton *,            consoleLogToClipboardButton)
 TBPROPERTY_READONLY(NSProgressIndicator *, consoleLogToClipboardProgressIndicator)
+
+TBPROPERTY_READONLY(TBButton *,            utilitiesExportTunnelblickSetupButton)
+TBPROPERTY_READONLY(NSProgressIndicator *, utilitiesExportTunnelblickSetupProgressIndicator)
 
 TBPROPERTY_READONLY(TBButton *,        utilitiesOpenUninstallInstructionsButton)
 

@@ -2,7 +2,7 @@
 --
 --     This is the Uninstaller for Tunnelblick. It is compiled into an application.
 --
---     Copyright © 2013, 2015 Jonathan K. Bullard. All rights reserved
+--     Copyright © 2013, 2015, 2018 Jonathan K. Bullard. All rights reserved
 --
 --     This AppleScript is compiled into an application. The application includes the
 --     'tunnelblick-uninstaller.sh' bash script. This AppleScript acts as a "front end" for that
@@ -10,9 +10,6 @@
 --
 --     The application may be double-clicked to uninstall /Applications/Tunnelblick.app, or
 --     a Tunnelblick (or rebranded) application may be dropped on it.
---
---     NOTE: IF THIS FILE IS MODIFIED, it should be compiled on OS X 10.4 and its droplet saved as
---           tunnelblick-uninstaller-droplet-compiled-on-tiger. See tunnelblick-uninstaller-droplet-note.txt.
 --
 ------------------------------------------------------------------------------------------------------------------
 
@@ -132,6 +129,7 @@ on RemoveDotApp(path) -- (String) as String
 	end if
 	
 	return path
+	
 end RemoveDotApp
 
 
@@ -176,7 +174,7 @@ on ReplaceLastPathComponent(path, newLastComponent) -- (String,String) as String
 	
 	if lastColonIx = -1 then
 		display alert (localized string of "Tunnelblick Uninstaller FAILED") Â
-			message LocalizedFormattedString("There is a problem. The path to this script (%s) does not contain any colons", {path}) Â
+			message LocalizedFormattedString("There is a problem. The path to this script (%s) does not contain any colons.\n\nPlease email developers@tunnelblick.net for help.", {path}) Â
 			as critical
 		return ""
 	end if
@@ -221,7 +219,8 @@ on GetMyScriptPath() -- As POSIX path
 	end if
 	
 	display alert (localized string of "Tunnelblick Uninstaller FAILED") Â
-		message LocalizedFormattedString("There is a problem. The uninstaller shell script does not exist at %s", {myScriptPath}) Â
+		message LocalizedFormattedString("There is a problem. The uninstaller shell script does not exist at %s.\n\nPlease email developers@tunnelblick.net for help.", Â
+										 {myScriptPath}) Â
 		as critical
 	return ""
 	
@@ -238,16 +237,13 @@ on NameToUninstall(fullPath) -- (String) as String
 		-- And verify that this is a Tunnelblick app -- that is, that it contains openvpnstart
 		set TBName to GetName(fullPath)
 		if (TBName = "") Â
-			or (not FileOrFolderExists(fullPath & "/Contents/Resources/openvpnstart")) then
+		or (not FileOrFolderExists(fullPath & "/Contents/Resources/openvpnstart")) then
 			if (TBName = "") then
 				set TBName to GetLastPathComponentWithoutDotApp(fullPath)
 			end if
 			set alertResult to display alert (localized string of "Tunnelblick Uninstaller") Â
-				message LocalizedFormattedString("%s
-
-is damaged (it does not include 'openvpnstart') or is not a Tunnelblick-based application.
-
-Do you wish to continue, and try to uninstall items associated with '%s'?", {fullPath, TBName}) Â
+				message LocalizedFormattedString("%s\n\nis damaged (it does not include 'openvpnstart') or is not a Tunnelblick-based application.\n\nDo you wish to continue, and try to uninstall items associated with '%s'?", Â
+												 {fullPath, TBName}) Â
 				as critical Â
 				buttons {localized string of "Continue", localized string of "Cancel"}
 			if alertResult = {button returned:localized string of "Cancel"} then
@@ -257,14 +253,12 @@ Do you wish to continue, and try to uninstall items associated with '%s'?", {ful
 		return TBName
 	else
 		display alert (localized string of "Tunnelblick Uninstaller FAILED") Â
-			message LocalizedFormattedString("Internal error: %s
-
-does not exist or is not a folder", {fullPath}) Â
+			message LocalizedFormattedString("Internal error: %s\n\ndoes not exist or is not a folder", {fullPath}) Â
 			as critical Â
 			buttons {localized string of "OK"}
 		return ""
 	end if
-	
+
 end NameToUninstall
 
 
@@ -278,11 +272,8 @@ on IdentifierToUninstall(fullPath, TBName) -- (String, String) as String
 		set TBIdentifier to GetIdentifier(fullPath)
 		if (TBIdentifier = "") then
 			set alertResult to display alert (localized string of "Tunnelblick Uninstaller") Â
-				message LocalizedFormattedString("%s
-
-is damaged (it does not have a 'CFBundleIdentifier') or not present.
-
-Do you wish to continue, and try to uninstall items associated with '%s' and OS X identifier 'net.tunnelblick.tunnelblick'?", {fullPath, TBName}) Â
+				message LocalizedFormattedString("%s\n\nis damaged (it does not have a 'CFBundleIdentifier') or not present.\n\nDo you wish to continue, and try to uninstall items associated with '%s' and macOS identifier 'net.tunnelblick.tunnelblick'?", Â
+												 {fullPath, TBName}) Â
 				as critical Â
 				buttons {localized string of "Continue", localized string of "Cancel"}
 			if alertResult = {button returned:localized string of "Cancel"} then
@@ -293,9 +284,7 @@ Do you wish to continue, and try to uninstall items associated with '%s' and OS 
 		return TBIdentifier
 	else
 		display alert (localized string of "Tunnelblick Uninstaller FAILED") Â
-			message LocalizedFormattedString("Internal error: %s
-
-does not exist or is not a folder", {fullPath}) Â
+			message LocalizedFormattedString("Internal error: %s\n\ndoes not exist or is not a folder", {fullPath}) Â
 			as critical Â
 			buttons {localized string of "OK"}
 		return ""
@@ -304,14 +293,13 @@ does not exist or is not a folder", {fullPath}) Â
 end IdentifierToUninstall
 
 
-
-
 ------------------------------------------------------------------------------------------------------------------
 --IsAppRunning: function returns true if a user process with the specified name exists
 ------------------------------------------------------------------------------------------------------------------
 on IsAppRunning(appName) -- (String) as Boolean
 	
 	tell application "System Events" to (name of processes) contains appName
+	
 end IsAppRunning
 
 
@@ -324,13 +312,9 @@ on QuitApplication(applicationName) -- (String) as Boolean
 	
 	repeat while IsAppRunning(applicationName)
 		set alertResult to display alert (localized string of "Tunnelblick Uninstaller") Â
-			message (LocalizedFormattedString("%s cannot be uninstalled while it is running.
-
-" & Â
-			"Please disconnect all configurations, quit %s, and try again.
-
-", Â
-			{applicationName, applicationName})) Â
+			message (LocalizedFormattedString("%s cannot be uninstalled while it is running.\n\n" & Â
+											  "Please disconnect all configurations, quit %s, and try again.\n\n", Â
+											  {applicationName, applicationName})) Â
 			as critical Â
 			buttons {localized string of "Try again", localized string of "Cancel"}
 		if alertResult = {button returned:localized string of "Cancel"} then
@@ -339,6 +323,7 @@ on QuitApplication(applicationName) -- (String) as Boolean
 	end repeat
 	
 	return true
+	
 end QuitApplication
 
 
@@ -367,17 +352,11 @@ on QuitOpenVPN(TBName) -- (String) as Boolean
 	
 	repeat while IsOpenvpnRunning()
 		set alertResult to display alert (localized string of "Tunnelblick Uninstaller") Â
-			message (LocalizedFormattedString("%s cannot be uninstalled while OpenVPN is running.
-
-" & Â
-			"OpenVPN is running but %s is not. Probably a configuration is set to connect when the computer starts -- " & Â
-			"such configurations are not disconnected when you quit %s.
-
-" & Â
-			"Please launch %s, disconnect all configurations, quit %s, and try again.
-
-", Â
-			{TBName, TBName, TBName, TBName, TBName})) Â
+			message (LocalizedFormattedString("%s cannot be uninstalled while OpenVPN is running.\n\n" & Â
+											  "OpenVPN is running but %s is not. Probably a configuration is set to connect when the computer starts -- " & Â
+											  "such configurations are not disconnected when you quit %s.\n\n" & Â
+											  "Please launch %s, disconnect all configurations, quit %s, and try again.\n\n", Â
+											  {TBName, TBName, TBName, TBName, TBName})) Â
 			as critical Â
 			buttons {localized string of "Try again", localized string of "Cancel"}
 		if alertResult = {button returned:localized string of "Cancel"} then
@@ -386,6 +365,7 @@ on QuitOpenVPN(TBName) -- (String) as Boolean
 	end repeat
 	
 	return true
+	
 end QuitOpenVPN
 
 ------------------------------------------------------------------------------------------------------------------
@@ -395,47 +375,23 @@ on UserConfirmation(fullPath, TBName, TBIdentifier) -- (String, String, String) 
 	
 	if FileOrFolderExists(fullPath) then
 		set alertResult to display alert (localized string of "Tunnelblick Uninstaller") Â
-			message (LocalizedFormattedString("'%s'
-	with OS X identifier '%s'
-	at '%s'
-
-	and all its configuration data, passwords, and " & Â
-			"preferences for all users of this computer will be removed.
-
-	" & Â
-			"You will not be able to recover them afterward.
-
-	" & Â
-			"CLICK 'Test' to find out what would be removed in an actual uninstall
-
-	" & Â
-			"OR CLICK 'Uninstall' to uninstall %s
-
-	" & Â
-			"OR CLICK 'Cancel'.", Â
-			{TBName, TBIdentifier, fullPath, TBName})) Â
+			message (LocalizedFormattedString("'%s'\nwith macOS identifier '%s'\nat '%s'\n\n" & Â
+											  "and all its configuration data, passwords, and preferences for all users of this computer will be removed.\n\n" & Â
+											  "You will not be able to recover them afterward.\n\n" & Â
+											  "CLICK 'Test' to find out what would be removed in an actual uninstall\n\n" & Â
+											  "OR CLICK 'Uninstall' to uninstall %s\n\n" & Â
+											  "OR CLICK 'Cancel'.", Â
+											  {TBName, TBIdentifier, fullPath, TBName})) Â
 			as critical Â
 			buttons {localized string of "Uninstall", localized string of "Test", localized string of "Cancel"}
 	else
 		set alertResult to display alert (localized string of "Tunnelblick Uninstaller") Â
-			message (LocalizedFormattedString("'%s'
-	with OS X identifier '%s'
-
-	and all its configuration data, passwords, and " & Â
-			"preferences for all users of this computer will be removed.
-
-	" & Â
-			"You will not be able to recover them afterward.
-
-	" & Â
-			"CLICK 'Test' to find out what would be removed in an actual uninstall
-
-	" & Â
-			"OR CLICK 'Uninstall' to uninstall %s
-
-	" & Â
-			"OR CLICK 'Cancel'.", Â
-			{TBName, TBIdentifier, TBName})) Â
+		message (LocalizedFormattedString("'%s'\nwith macOS identifier '%s'\n\nand all its configuration data, passwords, and preferences for all users of this computer will be removed.\n\n" & Â
+										  "You will not be able to recover them afterward.\n\n" & Â
+										  "CLICK 'Test' to find out what would be removed in an actual uninstall\n\n" & Â
+										  "OR CLICK 'Uninstall' to uninstall %s\n\n" & Â
+										  "OR CLICK 'Cancel'.", Â
+										  {TBName, TBIdentifier, TBName})) Â
 			as critical Â
 			buttons {localized string of "Uninstall", localized string of "Test", localized string of "Cancel"}
 	end if
@@ -449,6 +405,7 @@ on UserConfirmation(fullPath, TBName, TBIdentifier) -- (String, String, String) 
 	end if
 	
 	return "uninstall"
+	
 end UserConfirmation
 
 ------------------------------------------------------------------------------------------------------------------
@@ -456,59 +413,121 @@ end UserConfirmation
 ------------------------------------------------------------------------------------------------------------------
 on DoProcessing(theName, theBundleId, thePath, testFlag, myScriptPath) -- (String, String, String, Boolean, String)
 	
-	if testFlag then
-		display dialog LocalizedFormattedString("Although the next window will ask for a computer administrator username and password and say \"Tunnelblick Uninstaller wants to make changes\",
-
-NO CHANGES WILL BE MADE.
-
-The uninstaller needs administrator access so it can read the %s preferences of other users.", {theName})
+	-- Decide whether to use a "secure" erase or a normal erase. A "secure" erase writes over a file's data one or more times before deleting
+	-- the file's directory entry.
+	-- We want to do a "secure" erase on hard drives, but on SSDs we don't: it takes a lot more time and doesn't really do anything on an SSD
+	-- because of the way SSDs work.
+	
+	set ssdDetectionErrorMessage to ""
+	
+	-- Try to use the "bless" command to get the boot volume's ID. This fails on some Hackintoshes and in some other situations where the NVRAM is corrupt.
+	try
+		set blessOutput to do shell script "bless --info --getboot"
+	on error errorMessage number errorNumber
+		set blessOutput to ""
+		set ssdDetectionErrorMessage to "The uninstaller could not determine whether the boot volume is an SSD or an HDD, which can happen on Hackintoshes and on systems with corrupt NVRAM.
+		Because of this, 'secure' erase will be used (files will be overwritten before they are deleted), which will take a long time.
+		The error message from 'bless --info --getboot' was '" & errorMessage & "'.
+		
+		"
+	end try
+	
+	if blessOutput = "" then
+		set secureEraseOption to "-s"
 	else
-		display dialog LocalizedFormattedString("The next window will ask for a computer administrator username and password.
-
-The uninstaller needs administrator access so it can make the changes required to uninstall %s.
-
-Uninstalling may take SEVERAL MINUTES because it uses a secure erase process. During that time there will be no indication that anything is happening. Please be patient; a window will appear when the uninstall is complete.", {theName})
+		-- Ignore errors by executing "true" command at end (if grep does not find string, it returns an error)
+		set diskutilOutput to do shell script "diskutil info '" & blessOutput & "' | grep 'Solid State:' | grep 'Yes' ; true"
+		if diskutilOutput = "" then
+			set secureEraseOption to "-s"
+		else
+			set secureEraseOption to "-i"
+		end if
+	end if
+	
+	if testFlag then
+		
+		display dialog LocalizedFormattedString("Although the next window will ask for authorization from a computer administrator and say \"Tunnelblick Uninstaller wants to make changes\",\n\nNO CHANGES WILL BE MADE.\n\nThe uninstaller needs administrator authorization so it can read the %s preferences of other users.", Â
+												{theName})
+		
+	else
+		if secureEraseOption = "-s" then
+			
+			display dialog LocalizedFormattedString("The next window will ask for authorization from a computer administrator.\n\nThe uninstaller needs the authorization so it can make the changes required to uninstall %s.\n\nUninstalling may take SEVERAL MINUTES because files will be overwritten before being deleted.\n\nWhile the uninstall is being done there will be no indication that anything is happening. Please be patient; a window will appear when the uninstall is complete.", Â
+													{theName})
+			
+		else
+			display dialog LocalizedFormattedString("The next window will ask for authorization from a computer administrator.\n\nThe uninstaller needs the authorization so it can make the changes required to uninstall %s.\n\nWhile the uninstall is being done there will be no indication that anything is happening. Please be patient; a window will appear when the uninstall is complete.", Â
+													{theName})
+			
+		end if
 	end if
 	
 	-- Start the uninstaller script, using the -t or -u option as directed by the user
 	if testFlag then
-		set argumentString to " -t " & quoted form of theName & " " & quoted form of theBundleId
+		set argumentString to " " & secureEraseOption & " -t " & quoted form of theName & " " & quoted form of theBundleId
 	else
-		set argumentString to " -u " & quoted form of theName & " " & quoted form of theBundleId
+		set argumentString to " " & secureEraseOption & " -u " & quoted form of theName & " " & quoted form of theBundleId
 	end if
 	if FileOrFolderExists(thePath) then
 		set argumentString to argumentString & " " & quoted form of thePath
 	end if
-	set scriptOutput to do shell script (quoted form of myScriptPath) & argumentString with administrator privileges
+	
+	try
+		set scriptOutput to do shell script (quoted form of myScriptPath) & argumentString with administrator privileges
+	on error
+		display alert "Error in shell script: " & (quoted form of myScriptPath) & argumentString & "with administrator privileges.\n\nPlease email developers@tunnelblick.net for help."
+		return
+	end try
+	
+	-- If SSD detection failed, prepend a message about that to the script output
+	if (ssdDetectionErrorMessage ­ "") then
+		set scriptOutput to ssdDetectionErrorMessage & scriptOutput
+	end if
 	
 	-- Inform the user about errors (indicated by "Error: " or "Problem: " anywhere in the shell script's stdout)
 	-- and successful tests or uninstalls
+	
+	-- Set timeout to 10,000 hours, so the dialog never times out
+	set timeoutValue to 60 * 60 * 100000
+	
+	activate me
+	
 	if (scriptOutput contains "Problem: ") Â
-		or (scriptOutput contains "Error: ") then
+	or (scriptOutput contains "Error: ") then
 		if testFlag then
-			set alertResult to display alert (localized string of "Tunnelblick Uninstaller TEST FAILED") Â
-				message LocalizedFormattedString("One or more errors occurred during the %s uninstall test.", {theName}) Â
-				as critical Â
-				buttons {localized string of "OK", localized string of "Details"}
+			set alertResult to display dialog Â
+				LocalizedFormattedString("One or more errors occurred during the %s uninstall test.", {theName}) Â
+				with title (localized string of "Tunnelblick Uninstaller TEST FAILED") Â
+				with icon stop Â
+				buttons {localized string of "Details", localized string of "OK"} Â
+				giving up after timeoutValue
 		else
-			set alertResult to display alert (localized string of "Tunnelblick Uninstaller FAILED") Â
-				message LocalizedFormattedString("One or more errors occurred while uninstalling %s.", {theName}) Â
-				as critical Â
-				buttons {localized string of "OK", localized string of "Details"}
+			set alertResult to display dialog Â
+				LocalizedFormattedString("One or more errors occurred while uninstalling %s.", {theName}) Â
+				with title (localized string of "Tunnelblick Uninstaller FAILED") Â
+				with icon stop Â
+				buttons {localized string of "Details", localized string of "OK"} Â
+				giving up after timeoutValue
 		end if
 		
 	else
 		if testFlag then
-			set alertResult to display dialog LocalizedFormattedString("The %s uninstall test succeeded.", {theName}) Â
-				buttons {localized string of "Details", localized string of "OK"}
+			set alertResult to display dialog Â
+				LocalizedFormattedString("The %s uninstall test succeeded.", {theName}) Â
+				with title (localized string of "Tunnelblick Uninstall test succeeded") Â
+				buttons {localized string of "Details", localized string of "OK"} Â
+				giving up after timeoutValue
 		else
-			set alertResult to display dialog LocalizedFormattedString("%s was uninstalled successfully", {theName}) Â
-				buttons {localized string of "Details", localized string of "OK"}
+			set alertResult to display dialog Â
+				LocalizedFormattedString("%s was uninstalled successfully", {theName}) Â
+				with title (localized string of "Tunnelblick was Uninstalled") Â
+				buttons {localized string of "Details", localized string of "OK"} Â
+				giving up after timeoutValue
 		end if
 	end if
-	
-	-- If the user asked for details, store the log in /tmp and open the log in TextEdit
-	if alertResult = {button returned:localized string of "Details"} then
+
+	-- If the user asked for details, open the log in TextEdit
+	if the button returned of alertResult = (localized string of "Details") then
 		tell application "TextEdit"
 			activate
 			set the clipboard to scriptOutput
@@ -516,7 +535,7 @@ Uninstalling may take SEVERAL MINUTES because it uses a secure erase process. Du
 			tell front document to set its text to the clipboard
 		end tell
 	end if
-	
+
 end DoProcessing
 
 
@@ -548,7 +567,12 @@ on ProcessFile(fullPath) -- (POSIX path)
 		return
 	end if
 	
-	set confirmString to UserConfirmation(fullPath, TBName, TBIdentifier)
+	try
+		set confirmString to UserConfirmation(fullPath, TBName, TBIdentifier)
+	on error errorMessage number errorNumber
+		display alert "Error in UserConfirmation(): '" & errorMessage & "' (" & errorNumber & ")\n\nPlease email developers@tunnelblick.net for help."
+		return
+	end try
 	if confirmString = "cancel" then
 		return
 	end if
@@ -558,10 +582,15 @@ on ProcessFile(fullPath) -- (POSIX path)
 		if confirmString = "uninstall" then
 			set testFlag to false
 		else
-			display alert (localized string of "Tunnelblick Uninstaller TEST FAILED") Â
-				message LocalizedFormattedString("An internal error occurred: UserConfirmation('%s','%s','%s') returned '%s'", {fullPath, TBName, TBIdentifier, confirmString}) Â
-				as critical Â
-				buttons {localized string of "OK"}
+			try
+				display alert (localized string of "Tunnelblick Uninstaller TEST FAILED") Â
+					message LocalizedFormattedString("An internal error occurred: UserConfirmation('%s','%s','%s') returned '%s'.\n\nPlease email developers@tunnelblick.net for help.", {fullPath, TBName, TBIdentifier, confirmString}) Â
+					as critical Â
+					buttons {localized string of "OK"}
+			on error errorMessage number errorNumber
+				display alert "Error in ProcessFile(): '" & errorMessage & "' (" & errorNumber & ")\n\nPlease email developers@tunnelblick.net for help."
+				return
+			end try
 			return
 		end if
 	end if
@@ -571,7 +600,11 @@ on ProcessFile(fullPath) -- (POSIX path)
 		return
 	end if
 	
-	DoProcessing(TBName, TBIdentifier, fullPath, testFlag, scriptPath)
+	try
+		DoProcessing(TBName, TBIdentifier, fullPath, testFlag, scriptPath)
+	on error errorMessage number errorNumber
+		display alert "Error in DoProcessing(): '" & errorMessage & "' (" & errorNumber & ")\n\nPlease email developers@tunnelblick.net for help."
+	end try
 	
 end ProcessFile
 
@@ -590,14 +623,10 @@ on open theFileList
 		
 		-- Verify that the path ends in ".app/"; complain and exit if it doesn't
 		set fpLen to length of pathWithTrailingSlash
-		if (fpLen < 6) or Â
-			((text (fpLen - 4) through fpLen of pathWithTrailingSlash) ­ ".app/") then
+		if (fpLen < 6) Â
+		or ((text (fpLen - 4) through fpLen of pathWithTrailingSlash) ­ ".app/") then
 			display alert (localized string of "Tunnelblick Uninstaller") Â
-				message (LocalizedFormattedString("Only Tunnelblick or rebranded Tunnelblick applications may be uninstalled.
-
-'%s'
-
-is not an application", pathWithTrailingSlash)) Â
+				message (LocalizedFormattedString("Only Tunnelblick or rebranded Tunnelblick applications may be uninstalled.\n\n'%s'\n\nis not an application", pathWithTrailingSlash)) Â
 				as critical Â
 				buttons {localized string of "Cancel"}
 			return
@@ -609,11 +638,7 @@ is not an application", pathWithTrailingSlash)) Â
 			ProcessFile(pathWithoutTrailingSlash)
 		else
 			display alert (localized string of "Tunnelblick Uninstaller") Â
-				message (LocalizedFormattedString("Only Tunnelblick or rebranded Tunnelblick applications may be uninstalled.
-
-'%s'
-
-is not an application (not a folder)", pathWithTrailingSlash)) Â
+				message (LocalizedFormattedString("Only Tunnelblick or rebranded Tunnelblick applications may be uninstalled.\n\n'%s'\n\nis not an application (not a folder)", pathWithTrailingSlash)) Â
 				as critical Â
 				buttons {localized string of "Cancel"}
 		end if
@@ -623,6 +648,7 @@ is not an application (not a folder)", pathWithTrailingSlash)) Â
 			as critical Â
 			buttons {localized string of "Cancel"}
 	end if
+
 end open
 
 ------------------------------------------------------------------------------------------------------------------
@@ -639,5 +665,9 @@ on error
 end try
 
 if not IsDefined then
-	ProcessFile(POSIX path of "/Applications/Tunnelblick.app")
+	try
+		ProcessFile(POSIX path of "/Applications/Tunnelblick.app")
+	on error errorMessage number errorNumber
+		display alert "Error in ProcessFile(): '" & errorMessage & "' (" & errorNumber & ")\n\nPlease email developers@tunnelblick.net for help."
+	end try
 end if

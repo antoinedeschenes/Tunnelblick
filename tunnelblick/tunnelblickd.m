@@ -1,5 +1,5 @@
 /*
- * Copyright 2014, 2015, 2016 by Jonathan K. Bullard. All rights reserved.
+ * Copyright 2014, 2015, 2016, 2018 by Jonathan K. Bullard. All rights reserved.
  *
  *  This file is part of Tunnelblick.
  *
@@ -19,7 +19,7 @@
  *  or see http://www.gnu.org/licenses/.
  
  
- NOTE: THIS PROGRAM MUST BE RUN AS ROOT. IT IS AN OS X LAUNCHDAEMON
+ NOTE: THIS PROGRAM MUST BE RUN AS ROOT. IT IS AN macOS LAUNCHDAEMON
  
  This daemon is used by the Tunnelblick GUI to start and stop OpenVPN instances and perform other activities that require root access.
  
@@ -227,8 +227,16 @@ OSStatus runTool(NSString * userName,
     [errFile closeFile];
     
     NSString * stdOutString = [NSString stringWithContentsOfFile: stdOutPath encoding: NSUTF8StringEncoding error: nil];
+	if (  stdOutString == nil  ) {
+		stdOutString = @"Could not interpret stdout as UTF-8";
+		asl_log(asl, log_msg, ASL_LEVEL_ERR, "Could not interpret stdout as UTF-8");
+	}
     NSString * stdErrString = [NSString stringWithContentsOfFile: stdErrPath encoding: NSUTF8StringEncoding error: nil];
-    
+	if (  stdErrString == nil  ) {
+		stdErrString = @"Could not interpret stdout as UTF-8";
+		asl_log(asl, log_msg, ASL_LEVEL_ERR, "Could not interpret stderr as UTF-8");
+	}
+	
     if (  0 != unlink([stdOutPath fileSystemRepresentation])  ) {
         asl_log(asl, log_msg, ASL_LEVEL_ERR, "Could not unlink %s; errno = %ld; error was '%s'", [stdOutPath UTF8String], (long)errno, strerror(errno));
     }
@@ -245,14 +253,14 @@ OSStatus runTool(NSString * userName,
         *stdOutStringPtr = [[stdOutString retain] autorelease];
     } else if (   (status != EXIT_SUCCESS)
                && (0 != [stdOutString length])  )  {
-        message = [NSString stringWithFormat: @"stdout = '%@'", stdOutString];
+        message = [NSString stringWithFormat: @"stdout = '%@'\n", stdOutString];
     }
     
     if (  stdErrStringPtr  ) {
         *stdErrStringPtr = [[stdErrString retain] autorelease];
     } else if (   (status != EXIT_SUCCESS)
                && (0 != [stdErrString length])  )  {
-        message = [NSString stringWithFormat: @"%@stderr = '%@'", (message ? @"\n" : @""), stdErrString];
+        message = [NSString stringWithFormat: @"%@stderr = '%@'", (message ? message : @""), stdErrString];
     }
     
     if (  message  ) {
@@ -264,6 +272,10 @@ OSStatus runTool(NSString * userName,
 
 int main(void) {
 	
+	NSAutoreleasePool * pool = [NSAutoreleasePool new];
+	
+    unsigned int event_count = 0;
+	
 	struct sigaction action;
     
     struct sockaddr_storage ss;
@@ -272,13 +284,13 @@ int main(void) {
 	aslclient       asl           = NULL;
 	aslmsg          log_msg       = NULL;
     int             retval        = EXIT_FAILURE;
-	struct timespec timeout       = {  30, 0  };	// TimeOut value (OS X supplies a 30 second value if there is no TimeOut entry in the launchd .plist)
+	struct timespec timeout       = {  30, 0  };	// TimeOut value (macOS supplies a 30 second value if there is no TimeOut entry in the launchd .plist)
     struct kevent   kev_init;
     struct kevent   kev_listener;
     launch_data_t   sockets_dict,
-	checkin_response,
-	checkin_request,
-	listening_fd_array;
+					checkin_response,
+					checkin_request,
+					listening_fd_array;
     size_t          i;
     int             kq;
     
@@ -286,9 +298,17 @@ int main(void) {
 	
     // Create a new ASL log
     asl = asl_open("tunnelblickd", "Daemon", ASL_OPT_STDERR);
+	if (  asl == NULL  ) {
+		return EXIT_FAILURE;
+	}
     log_msg = asl_new(ASL_TYPE_MSG);
-    asl_set(log_msg, ASL_KEY_SENDER, "tunnelblickd");
-    
+	if (  log_msg == NULL  ) {
+		return EXIT_FAILURE;
+	}
+	if (  asl_set(log_msg, ASL_KEY_SENDER, "tunnelblickd") != 0  ) {
+		return EXIT_FAILURE;
+	}
+		
     // Create a new kernel event queue that we'll use for our notification.
     // Note the use of the '%m' formatting character.
 	// ASL will replace %m with the error string associated with the current value of errno.
@@ -325,7 +345,7 @@ int main(void) {
         goto done;
     }
 	
-	// If the .plist and OS X did not specify a TimeOut, default to 30 seconds
+	// If the .plist and macOS did not specify a TimeOut, default to 30 seconds
 	launch_data_t timeoutValue = launch_data_dict_lookup(checkin_response, LAUNCH_JOBKEY_TIMEOUT);
 	if (  timeoutValue != NULL) {
 		timeout.tv_sec = launch_data_get_integer(timeoutValue);
@@ -383,11 +403,19 @@ int main(void) {
 	
 	// Loop processing kernel events.
     for (;;) {
+
+		if (  event_count++ > 100  ) {
+			// After processing 100 events, force a new tunnelblickd process to avoid problems caused by memory leaks
+			retval = EXIT_SUCCESS;
+			goto done;
+		}
+		
+		[pool drain];
+		pool = [NSAutoreleasePool new];
+		
         FILE *the_stream;
         int  filedesc;
 		int nbytes;
-
-#define SOCKET_BUF_SIZE 1024
 
 		char buffer[SOCKET_BUF_SIZE];
 		
@@ -414,7 +442,8 @@ int main(void) {
 					rename(TUNNELBLICKD_LOG_PATH_C, TUNNELBLICKD_PREVIOUS_LOG_PATH_C);
 				}
 			}
-            return EXIT_SUCCESS;
+            retval = EXIT_SUCCESS;
+			goto done;
         }
 //        asl_log(asl, log_msg, ASL_LEVEL_DEBUG, "Received file descriptor %d", filedesc);
 		
@@ -469,6 +498,12 @@ int main(void) {
 		// Remove the LF at the end of the request
 		buffer[nbytes - 1] = '\0';
 
+		// Make sure the string is a valid UTF-8 string
+		if (  [NSString stringWithUTF8String: buffer] == NULL  ) {
+			asl_log(asl, log_msg, ASL_LEVEL_ERR, "Received %lu bytes from client but they were not a valid UTF-8 string", (unsigned long)nbytes);
+			goto done;
+		}
+		
 		
 //		asl_log(asl, log_msg, ASL_LEVEL_DEBUG, "Received %lu bytes from client including a terminating NL: '%s'", (unsigned long)nbytes, buffer);
 		
@@ -476,12 +511,18 @@ int main(void) {
 		//***************************************************************************************
 		// Process the request by calling tunnelblick-helper and sending its status and output to the client
 		
-		NSAutoreleasePool * pool = [NSAutoreleasePool new];
-		
         // Get the client's username from the client's euid
         struct passwd *ss = getpwuid(client_euid);
         NSString * userName = [NSString stringWithCString: ss->pw_name encoding: NSUTF8StringEncoding];
+		if (  userName == nil  ) {
+			asl_log(asl, log_msg, ASL_LEVEL_ERR, "Could not interpret username as UTF-8");
+			goto done;
+		}
         NSString * userHome = [NSString stringWithCString: ss->pw_dir  encoding: NSUTF8StringEncoding];
+		if (  userHome == nil  ) {
+			asl_log(asl, log_msg, ASL_LEVEL_ERR, "Could not interpret userhome as UTF-8");
+			goto done;
+		}
 		
 		// Set up to have tunnelblick-helper to do the work
 		NSString * tunnelblickHelperPath;
@@ -494,8 +535,6 @@ int main(void) {
 									 stringByAppendingPathComponent: @"tunnelblick-helper"];
 		} else {
 			asl_log(asl, log_msg, ASL_LEVEL_ERR, "Invalid bundlePath = '%s'", [bundlePath UTF8String]);
-			retval = EXIT_FAILURE;
-			[pool drain];
 			goto done;
 		}
 		NSString * command      = [NSString stringWithUTF8String: buffer + strlen(command_header)];		// Skip over the header
@@ -543,8 +582,6 @@ int main(void) {
 		} else if (  seteuid(0)  ) {
 			asl_log(asl, log_msg, ASL_LEVEL_ERR, "After running tunnelblick-helper with command '%s', seteuid(0) failed; uid = %lu; euid = %lu; gid = %lu; egid = %lu; error = %m",
 					[commandToDisplay UTF8String], (unsigned long)getuid(), (unsigned long)geteuid(), (unsigned long)getgid(), (unsigned long)getegid());
-			retval = EXIT_FAILURE;
-			[pool drain];
 			goto done;
 		} else {
 //			asl_log(asl, log_msg, ASL_LEVEL_DEBUG, "After running tunnelblick-helper, seteuid(0) succeeded; uid = %lu; euid = %lu; gid = %lu; egid = %lu",
@@ -558,8 +595,6 @@ int main(void) {
 		} else if (  setegid(0)  ) {
 			asl_log(asl, log_msg, ASL_LEVEL_ERR, "After running tunnelblick-helper with command '%s', setegid(0) failed; uid = %lu; euid = %lu; gid = %lu; egid = %lu; error = %m",
 					[commandToDisplay UTF8String], (unsigned long)getuid(), (unsigned long)geteuid(), (unsigned long)getgid(), (unsigned long)getegid());
-			retval = EXIT_FAILURE;
-			[pool drain];
 			goto done;
 //		} else {
 //			asl_log(asl, log_msg, ASL_LEVEL_DEBUG, "After running tunnelblick-helper, setegid(0) succeeded; uid = %lu; euid = %lu; gid = %lu; egid = %lu",
@@ -591,14 +626,16 @@ int main(void) {
 			close(filedesc);  // This isn't fatal
 		}
 		
-		[pool drain];
-		pool = nil;
-		
 		//***************************************************************************************
 		//***************************************************************************************
 	}
 	
 done:
-    asl_close(asl);
+	if (  asl != NULL ) {
+		asl_close(asl);
+	}
+
+	[pool drain];
+	
 	return retval;
 }

@@ -1,6 +1,6 @@
 /*
  * Copyright 2004, 2005, 2006, 2007, 2008, 2009 by Angelo Laub
- * Contributions by Jonathan K. Bullard Copyright 2010, 2011, 2012, 2013, 2014, 2015, 2016. All rights reserved.
+ * Contributions by Jonathan K. Bullard Copyright 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018. All rights reserved.
  *
  *  This file is part of Tunnelblick.
  *
@@ -97,10 +97,20 @@ struct Statistics {
     
     AlertWindowController * slowDisconnectWindowController;
     
+	NSString	  * dynamicChallengeUsername; // When nil, no dynamic challenge info is valid
+	NSString	  * dynamicChallengeState;
+	NSString	  * dynamicChallengePrompt;
+	NSString	  * dynamicChallengeFlags;
+	NSString      * authRetryParameter;		// Parameter from auth-retry as seen in configuration file (or nil if not seen)
+	
+	time_t			timeLastWarnedAboutOpenVPNVersion;
+	
 	pid_t           pid;                // 0, or process ID of OpenVPN process created for this connection
 	unsigned int    portNumber;         // 0, or port number used to connect to management socket
     volatile int32_t avoidHasDisconnectedDeadlock; // See note at start of 'hasDisconnected' method
     
+	NSMutableArray * messagesIfConnectionFails; // Localized strings to display if connection failed (e.g., "Unrecognized option...")
+	
     VPNConnectionUserWantsState
                     userWantsState;     // Indicates what the user wants to do about authorization failures
     
@@ -112,6 +122,10 @@ struct Statistics {
     NSDate        * bytecountsUpdated;  // Time variables were last updated
     NSArray       * argumentsUsedToStartOpenvpnstart;   // The arguments that were last used to run openvpnstart
     
+	BOOL            waitingForNetworkAvailability;
+	BOOL            wereWaitingForNetworkAvailability;
+	BOOL            stopWaitForNetworkAvailabilityThread;
+	
     pthread_mutex_t bytecountMutex;     // Used to avoid race conditions when accessing the above
 
     BOOL            bytecountMutexOK;   // Flag that the mutex is set up. (If not, we don't do statistics)
@@ -119,6 +133,8 @@ struct Statistics {
 
     BOOL            authFailed;         // Indicates authorization failed
     BOOL            credentialsAskedFor;// Indicates whether credentials have been asked for but not provided
+	BOOL            useManualChallengeResponseOnce;
+	BOOL		    doNotClearUseManualChallengeResponseOnceOnNextConnect;
     BOOL            usedModifyNameserver;// True iff "Set nameserver" was used for the current (or last) time this connection was made or attempted
     BOOL            tryingToHookup;     // True iff this connection is trying to hook up to an instance of OpenVPN
     BOOL            initialHookupTry;   // True iff this is the initial hookup try (not as a result of a connection attempt)
@@ -148,6 +164,8 @@ struct Statistics {
 // PUBLIC METHODS:
 // (Private method interfaces are in VPNConnection.m)
 
+-(void)             addMessageToDisplayIfConnectionFails: (NSString *) message;
+
 -(void)             addToLog:                   (NSString *)        text;
 
 -(BOOL)             authFailed;
@@ -159,6 +177,8 @@ struct Statistics {
 -(void)             updateStatisticsDisplay;
 
 -(NSString *)       configPath;
+
+-(BOOL)				configurationIsSecureOrMatchesShadowCopy;
 
 -(NSDate *)         connectedSinceDate;
 
@@ -179,6 +199,8 @@ struct Statistics {
 
 -(void)             waitUntilCompletelyDisconnected;
 
+-(NSUInteger)		defaultVersionIxFromVersionNames: (NSArray *) versionNames;
+
 -(NSString *)       displayLocation;
 
 -(NSString *)       displayName;
@@ -187,7 +209,7 @@ struct Statistics {
 
 -(void)             fadeAway;
 
--(NSUInteger)       getOpenVPNVersionIxToUse;
+-(NSUInteger)       getOpenVPNVersionIxToUseConnecting: (BOOL) connecting;
 
 -(void)             hasDisconnected;
 
@@ -213,6 +235,8 @@ struct Statistics {
 
 -(BOOL)             launchdPlistWillConnectOnSystemStart;
 
+-(BOOL)				makeShadowCopyMatchConfiguration;
+
 -(BOOL)             mayConnectWhenComputerStarts;
 
 -(NSArray *)        modifyNameserverOptionList;
@@ -233,6 +257,8 @@ struct Statistics {
 -(NSString *)       requestedState;
 
 -(NSString *)       sanitizedConfigurationFileContents;
+
+-(void)				sendSigtermToManagementSocket;
 
 -(void)             setConnectedSinceDate:      (NSDate *)          value;
 
@@ -261,6 +287,8 @@ struct Statistics {
 
 -(BOOL)             usedModifyNameserver;
 
+-(BOOL)				userOrGroupOptionExistsInConfiguration;
+
 TBPROPERTY_READONLY(StatusWindowController *,  statusScreen)
 TBPROPERTY_READONLY(NSString *,                tapOrTun)
 TBPROPERTY_WRITEONLY(NSSound *,                tunnelUpSound,                    setTunnelUpSound)
@@ -272,6 +300,11 @@ TBPROPERTY(          NSDate *,                 bytecountsUpdated,               
 TBPROPERTY(          NSArray *,                argumentsUsedToStartOpenvpnstart, setArgumentsUsedToStartOpenvpnstart)
 TBPROPERTY(          AlertWindowController *,  slowDisconnectWindowController,   setSlowDisconnectWindowController)
 TBPROPERTY(          NSString *,               ipAddressBeforeConnect,           setIpAddressBeforeConnect)
+TBPROPERTY(          NSString *,               dynamicChallengeUsername,         setDynamicChallengeUsername)
+TBPROPERTY(          NSString *,               dynamicChallengeState,            setDynamicChallengeState)
+TBPROPERTY(          NSString *,               dynamicChallengePrompt,           setDynamicChallengePrompt)
+TBPROPERTY(          NSString *,               dynamicChallengeFlags,            setDynamicChallengeFlags)
+TBPROPERTY(          NSString *,               authRetryParameter,               setAuthRetryParameter)
 TBPROPERTY(          NSString *,               serverIPAddress,                  setServerIPAddress)
 TBPROPERTY(          NSString *,               connectedCfgLocCodeString,        setConnectedCfgLocCodeString)
 TBPROPERTY(          BOOL,                     ipCheckLastHostWasIPAddress,      setIpCheckLastHostWasIPAddress)

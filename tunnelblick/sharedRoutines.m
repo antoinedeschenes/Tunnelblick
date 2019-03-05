@@ -1,5 +1,5 @@
 /*
- * Copyright 2012, 2013, 2014, 2015, 2016 Jonathan K. Bullard. All rights reserved.
+ * Copyright 2012, 2013, 2014, 2015, 2016, 2018 Jonathan K. Bullard. All rights reserved.
  *
  *  This file is part of Tunnelblick.
  *
@@ -28,6 +28,8 @@
 
 #import "sharedRoutines.h"
 
+//#import <arpa/inet.h>
+//#import <netdb.h>
 #import <netinet/in.h>
 #import <sys/mount.h>
 #import <sys/socket.h>
@@ -35,6 +37,7 @@
 #import <sys/types.h>
 #import <sys/un.h>
 #import <CommonCrypto/CommonDigest.h>
+#import <SystemConfiguration/SCNetworkReachability.h>
 
 #import "defines.h"
 
@@ -47,6 +50,86 @@ extern NSString * gDeployPath;
 // External reference that must be defined in Tunnelblick, installer, and any other target using this module
 void appendLog(NSString * msg);	// Appends a string to the log
 
+
+NSString * mipName(void) {
+	
+	NSDirectoryEnumerator * dirEnum = [[NSFileManager defaultManager] enumeratorAtPath: L_AS_T];
+	NSString * fileName;
+	while (  (fileName = [dirEnum nextObject])  ) {
+		[dirEnum skipDescendants];
+		if (  [fileName hasSuffix: @".mip"]  ) {
+			break;
+		}
+	}
+
+	return [fileName stringByDeletingPathExtension];
+}
+
+BOOL networkIsReachable(void) {
+	
+	// This routine a heavily modified version of a method at https://github.com/arashpayan/appirater/blob/master/Appirater.m,
+	// which was apparently based on http://www.chrisdanielson.com/tag/scnetworkreachability/
+
+	// Make a socket IP address of 0.0.0.0
+	struct sockaddr_in zeroIPAddress;
+	bzero(&zeroIPAddress, sizeof(zeroIPAddress));
+	zeroIPAddress.sin_len = sizeof(zeroIPAddress);
+	zeroIPAddress.sin_family = AF_INET;
+ 
+	// Recover reachability flags
+	SCNetworkReachabilityRef reachabilityRef = SCNetworkReachabilityCreateWithAddress(NULL, (const struct sockaddr *)(&zeroIPAddress));
+	if (  reachabilityRef == NULL  ) {
+		appendLog(@"SCNetworkReachabilityCreateWithAddress failed");
+		return NO;
+	}
+	
+	SCNetworkReachabilityFlags flags;
+ 
+	Boolean haveFlags = SCNetworkReachabilityGetFlags(reachabilityRef, &flags);
+	
+	CFRelease(reachabilityRef);
+ 
+	if (  ! haveFlags  ) {
+		appendLog(@"Error: Could not get network reachability flags");
+		return NO;
+	}
+ 
+	BOOL isReachable = flags & kSCNetworkFlagsReachable;
+	
+	return isReachable;
+	
+/* IF WANT TO CHECK THAT THE INTERNET (A SPECIFIC URL, ACTUALLY) IS REACHABLE:
+
+	REPLACE THE above "return isReachable;" WITH THE FOLLOWING:
+ 
+	if (  ! isReachable  ) {
+		return NO;
+	}
+ 
+	NSURL *testURL = [NSURL URLWithString:@"http://www.apple.com/"];
+	
+	NSTimeInterval timeoutInterval = 20.0;
+	
+	NSURLRequest * testRequest = [NSURLRequest requestWithURL: testURL
+											   	  cachePolicy: NSURLRequestReloadIgnoringLocalCacheData
+											  timeoutInterval: timeoutInterval];
+	NSURLConnection * testConnection = [[NSURLConnection alloc] initWithRequest: testRequest delegate: nil];
+	return ( testConnection ? YES : NO);
+	
+	WHEN WE SUPPORT ONLY 10.9 AND HIGHER, REPLACE THE ABOVE FIVE NON-EMPTY LINES WITH THE FOLLOWING (runningOnMavericksOrNewer()):
+ 
+	NSURLSessionConfiguration * sessionConfiguration = [NSURLSessionConfiguration ephemeralSessionConfiguration];
+	sessionConfiguration.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
+	sessionConfiguration.timeoutIntervalForRequest = timeoutInterval;
+	
+	NSURLSession * session = [NSURLSession sessionWithConfiguration: sessionConfiguration];
+	
+	NSURLSessionTask * task = [session dataTaskWithURL: testURL];
+	[task resume];
+	
+	return (  task.state != NSURLSessionTaskStateSuspended  );
+ */
+}
 
 BOOL isValidIPAdddress(NSString * ipAddress) {
 	
@@ -63,6 +146,13 @@ BOOL isValidIPAdddress(NSString * ipAddress) {
 	}
 	
 	return FALSE;
+}
+
+BOOL shouldRunScriptAsUserAtPath(NSString * path) {
+	
+	NSString * name = [path lastPathComponent];
+	return (  [name isEqualToString: @"static-challenge-response.user.sh"]
+		   || [name isEqualToString: @"dynamic-challenge-response.user.sh"]  );
 }
 
 // Returns YES if file doesn't exist, or has the specified ownership and permissions
@@ -86,6 +176,35 @@ BOOL checkOwnerAndPermissions(NSString * fPath, uid_t uid, gid_t gid, mode_t per
     appendLog([NSString stringWithFormat: @"File %@ is owned by %@:%@ with permissions: %lo but must be owned by %ld:%ld with permissions %lo",
           fPath, fileOwner, fileGroup, perms, (long)uid, (long)gid, (long)permsShouldHave]);
     return NO;
+}
+
+unsigned int uidOrGidFromName(NSString * name, BOOL shouldGetGid) {
+	
+	NSString * stdoutString = nil;
+	NSArray  * arguments = [NSArray arrayWithObjects: (shouldGetGid ? @"-g" : @"-u"), name, nil];
+	OSStatus status = runTool(TOOL_PATH_FOR_ID, arguments, &stdoutString, nil);
+	if (  status != 0  ) {
+		appendLog([NSString stringWithFormat: @"Could not get %@ for %@", (shouldGetGid ? @"uid" : @"gid"), name]);
+		return 0;
+	}
+	
+	unsigned int value = [stdoutString unsignedIntValue];
+	if (  value == UINT_MAX  ) {
+		appendLog([NSString stringWithFormat: @"Could not get %@ for %@ (was UINT_MAX)", (shouldGetGid ? @"uid" : @"gid"), name]);
+		return 0;
+	}
+	
+	return value;
+}
+
+uid_t getUidFromName(NSString * username) {
+	
+	return (uid_t)uidOrGidFromName(username, FALSE);
+}
+
+gid_t getGidFromName(NSString * username) {
+	
+	return (gid_t)uidOrGidFromName(username, TRUE);
 }
 
 NSDictionary * tunnelblickdPlistDictionaryToUse(void) {
@@ -195,7 +314,13 @@ BOOL needToReplaceLaunchDaemon(void) {
 		&& tunnelblickdPlistOK
 		&& socketOK  ) {
 		NSString * previousDaemonHash = [[[NSString alloc] initWithData: previousDaemonHashData encoding: NSUTF8StringEncoding] autorelease];
+		if (  previousDaemonHash == nil  ) {
+			previousDaemonHash = @"yyy";
+		}
         NSString * previousPlistHash  = [[[NSString alloc] initWithData: previousPlistHashData  encoding: NSUTF8StringEncoding] autorelease];
+		if (  previousPlistHash == nil  ) {
+			previousPlistHash = @"zzz";
+		}
         NSDictionary * activePlist    = [NSDictionary dictionaryWithContentsOfFile: TUNNELBLICKD_PLIST_PATH];
 		BOOL daemonHashesMatch  = [previousDaemonHash isEqual: hashForTunnelblickdProgramInApp()];
 		BOOL plistHashesMatch   = [previousPlistHash  isEqual: hashForTunnelblickdPlistToUse()];
@@ -659,6 +784,26 @@ NSString * fileIsReasonableSize(NSString * path) {
     return nil;
 }
 
+BOOL isAGoogleDriveIconFile(NSString * path) {
+	
+	NSString * name = [path lastPathComponent];
+	if (  [name hasPrefix: @"Icon"]
+		&& (  [name length] == 5)  ) {
+		NSDictionary * attributes = [[NSFileManager defaultManager] tbFileAttributesAtPath: path traverseLink: NO];
+		if (  ! attributes  ) {
+			NSLog(@"No attributes for %@; treating it as a Google Drive Icon File", path);
+			return YES;
+		}
+		if ( [attributes fileSize] == 0 ) {
+			return YES;
+		}
+		NSLog(@"File not zero size at %@; not treating it as a Google Drive Icon File", path);
+		return NO;
+	}
+	
+	return NO;
+}
+
 NSString * fileIsReasonableAt(NSString * path) {
     
     // Returns nil or a localized error message
@@ -669,6 +814,10 @@ NSString * fileIsReasonableAt(NSString * path) {
         appendLog(errMsg);
         return errMsg;
     }
+	
+	if (  isAGoogleDriveIconFile(path)  ) {
+		return nil;
+	}
     
 	if (  invalidConfigurationName(path, PROHIBITED_DISPLAY_NAME_CHARACTERS_CSTRING)  ) {
 		NSString * errMsg = [NSString stringWithFormat: NSLocalizedString(@"Path '%@' contains characters that are not allowed.\n\n"
@@ -810,24 +959,24 @@ NSDictionary * highestEditionForEachBundleIdinL_AS_T(void) {
 	return bundleIdEditions;
 }
 
-unsigned int getFreePort(unsigned int startingPort)
+unsigned int getFreePort(void)
 {
 	// Returns a free port or 0 if no free port is available
 	
-    if (  startingPort > 65535  ) {
-        appendLog([NSString stringWithFormat: @"getFreePort: startingPort must be < 65536; it was %u", startingPort]);
-        return 0;
-    }
-    
-    unsigned int resultPort = startingPort - 1;
-
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (  fd == -1  ) {
+		appendLog(@"getFreePort: could not get an fd");
         return 0;
     }
     
+	unsigned int resultPort;
+	
     int result = 0;
-    
+
+	// Try many times to get a port to have a good chance of finding a free port even if most are in use.
+	unsigned tries_to_do = 2 * (MAX_MANAGMENT_INTERFACE_PORT_NUMBER - MIN_MANAGMENT_INTERFACE_PORT_NUMBER);
+	unsigned tries_left = tries_to_do;
+
     do {
         struct sockaddr_in address;
         unsigned len = sizeof(struct sockaddr_in);
@@ -836,26 +985,31 @@ unsigned int getFreePort(unsigned int startingPort)
             close(fd);
             return 0;
         }
-        if (  resultPort >= 65535  ) {
-            appendLog([NSString stringWithFormat: @"getFreePort: cannot get a free port between %u and 65536", startingPort - 1]);
-            close(fd);
-            return 0;
-        }
-        resultPort++;
-        
+		
+		// Try a random port in the range for the managment port
+        resultPort = arc4random_uniform(MAX_MANAGMENT_INTERFACE_PORT_NUMBER - MIN_MANAGMENT_INTERFACE_PORT_NUMBER) + MIN_MANAGMENT_INTERFACE_PORT_NUMBER;
+		
         address.sin_len = (unsigned char)len;
         address.sin_family = AF_INET;
         address.sin_port = htons(resultPort);
         address.sin_addr.s_addr = htonl(0x7f000001); // 127.0.0.1, localhost
         
-        memset(address.sin_zero,0,sizeof(address.sin_zero));
+        memset(address.sin_zero, 0, sizeof(address.sin_zero));
         
-        result = bind(fd, (struct sockaddr *)&address,sizeof(address));
+        result = bind(fd, (struct sockaddr *)&address, sizeof(address));
         
-    } while (result!=0);
+    } while (   ( result != 0 )
+			 && ( tries_left-- != 0 )
+			 );
     
     close(fd);
     
+	if (  result != 0  ) {
+		appendLog([NSString stringWithFormat: @"getFreePort: could not get a free port (in %u through %u) in %u tries",
+				   MIN_MANAGMENT_INTERFACE_PORT_NUMBER, MAX_MANAGMENT_INTERFACE_PORT_NUMBER, tries_to_do]);
+		resultPort = 0;
+	}
+	
     return resultPort;
 }
 
@@ -871,10 +1025,12 @@ BOOL invalidConfigurationName(NSString * name, const char badCharsC[])
 		}
 	}
 	
-	const char * nameC          = [name UTF8String];
+	const char * nameC = [name UTF8String];
 	
-	return (   ( [name length] == 0)
+	return (   ( nameC == NULL)
+			|| ( [name length] == 0)
             || ( [name hasPrefix: @"."] )
+			|| ( [name hasSuffix: @"."] )
             || ( [name rangeOfString: @".."].length != 0)
             || ( NULL != strpbrk(nameC, badCharsC) )
             );
@@ -885,6 +1041,53 @@ BOOL itemIsVisible(NSString * path)
 	// Returns YES if the final component of a path does NOT start  with a period
     
     return ! [[path lastPathComponent] hasPrefix: @"."];
+}
+
+BOOL makeOneItemUnlockedAtPath(NSString * path)
+{
+	NSDictionary * curAttributes;
+	NSDictionary * newAttributes = [NSDictionary dictionaryWithObject: [NSNumber numberWithInt:0] forKey: NSFileImmutable];
+	
+	unsigned i;
+	unsigned maxTries = 5;
+	for (i=0; i <= maxTries; i++) {
+		curAttributes = [[NSFileManager defaultManager] tbFileAttributesAtPath: path traverseLink:YES];
+		if (  ! [curAttributes fileIsImmutable]  ) {
+			break;
+		}
+		[[NSFileManager defaultManager] tbChangeFileAttributes: newAttributes atPath: path];
+		appendLog([NSString stringWithFormat: @"Unlocked %@", path]);
+		if (  i != 0  ) {
+			sleep(1);
+		}
+	}
+	
+	if (  [curAttributes fileIsImmutable]  ) {
+		appendLog([NSString stringWithFormat: @"Failed to unlock %@ in %d attempts", path, maxTries]);
+		return FALSE;
+	}
+	
+	return TRUE;
+}
+
+BOOL makeUnlockedAtPath(NSString * path)
+{
+	// To make a file hierarchy unlocked, we have to first unlock everything inside the hierarchy
+	
+	BOOL isDir;
+	if (   [[NSFileManager defaultManager] fileExistsAtPath: path isDirectory: &isDir]  ) {
+		if (  isDir  ) {
+			NSString * file;
+			NSDirectoryEnumerator * dirEnum = [[NSFileManager defaultManager] enumeratorAtPath: path];
+			while (  (file = [dirEnum nextObject])  ) {
+				makeUnlockedAtPath([path stringByAppendingPathComponent: file]);
+			}
+		}
+		
+		return makeOneItemUnlockedAtPath(path);
+	}
+	
+	return TRUE;
 }
 
 BOOL secureOneFolder(NSString * path, BOOL isPrivate, uid_t theUser)
@@ -904,7 +1107,8 @@ BOOL secureOneFolder(NSString * path, BOOL isPrivate, uid_t theUser)
 	
     // Permissions:
     mode_t folderPerms;         //  For folders
-    mode_t scriptPerms;         //  For files with .sh extensions
+    mode_t rootScriptPerms;     //  For files with .sh extensions that are run as root
+	mode_t userScriptPerms;     //  For files with .sh extensions that are run as the user -- that is, if shouldRunScriptAsUserAtPath()
     mode_t executablePerms;     //  For files with .executable extensions (only appear in a Deploy folder
     mode_t publicReadablePerms; //  For files named forced-preferences (only appear in a Deploy folder) or Info.plist
     mode_t otherPerms;          //  For all other files
@@ -919,14 +1123,16 @@ BOOL secureOneFolder(NSString * path, BOOL isPrivate, uid_t theUser)
         if (  isOnRemoteVolume(path)  ) {
             group = STAFF_GROUP_ID;
             folderPerms         = PERMS_PRIVATE_REMOTE_FOLDER;
-            scriptPerms         = PERMS_PRIVATE_REMOTE_SCRIPT;
+            rootScriptPerms     = PERMS_PRIVATE_REMOTE_ROOT_SCRIPT;
+			userScriptPerms     = PERMS_PRIVATE_REMOTE_USER_SCRIPT;
             executablePerms     = PERMS_PRIVATE_REMOTE_EXECUTABLE;
             publicReadablePerms = PERMS_PRIVATE_REMOTE_READABLE;
             otherPerms          = PERMS_PRIVATE_REMOTE_OTHER;
         } else {
             group = ADMIN_GROUP_ID;
             folderPerms         = PERMS_PRIVATE_FOLDER;
-            scriptPerms         = PERMS_PRIVATE_SCRIPT;
+            rootScriptPerms     = PERMS_PRIVATE_ROOT_SCRIPT;
+			userScriptPerms     = PERMS_PRIVATE_USER_SCRIPT;
             executablePerms     = PERMS_PRIVATE_EXECUTABLE;
             publicReadablePerms = PERMS_PRIVATE_READABLE;
             otherPerms          = PERMS_PRIVATE_OTHER;
@@ -935,7 +1141,8 @@ BOOL secureOneFolder(NSString * path, BOOL isPrivate, uid_t theUser)
         user  = 0;          // Secured files are owned by root:wheel
         group = 0;
 		folderPerms         = PERMS_SECURED_FOLDER;
-        scriptPerms         = PERMS_SECURED_SCRIPT;
+        rootScriptPerms     = PERMS_SECURED_ROOT_SCRIPT;
+		userScriptPerms     = PERMS_SECURED_USER_SCRIPT;
         executablePerms     = PERMS_SECURED_EXECUTABLE;
         publicReadablePerms = PERMS_SECURED_READABLE;
         otherPerms          = PERMS_SECURED_OTHER;
@@ -959,7 +1166,9 @@ BOOL secureOneFolder(NSString * path, BOOL isPrivate, uid_t theUser)
             result = result && checkSetPermissions(filePath, folderPerms, YES);
             
         } else if ( [ext isEqualToString: @"sh"]  ) {
-            result = result && checkSetPermissions(filePath, scriptPerms, YES);
+			result = result && checkSetPermissions(filePath,
+												   (shouldRunScriptAsUserAtPath(file) ? userScriptPerms : rootScriptPerms),
+												   YES);
             
         } else if (   [ext isEqualToString: @"strings"]
                    || [ext isEqualToString: @"png"]
@@ -1013,16 +1222,45 @@ NSData * availableDataOrError(NSFileHandle * file) {
 	}
 }
 
-NSDictionary * getSafeEnvironment(bool includeIV_GUI_VER) {
+NSString * configFolderPathFromConfigNameAndLocCode(NSString * configName, unsigned configLocCode) {
+	
+	NSString * prefix = nil;
+	switch (  configLocCode  ) {
+		
+		case CFG_LOC_PRIVATE:
+		case CFG_LOC_ALTERNATE:
+			prefix = [L_AS_T_USERS stringByAppendingPathComponent: NSUserName()];
+			break;
+			
+		case CFG_LOC_DEPLOY:
+			prefix = gDeployPath;
+			break;
+			
+		case CFG_LOC_SHARED:
+			prefix = L_AS_T_SHARED;
+			break;
+			
+		default:
+			appendLog([NSString stringWithFormat: @"Invalid configLocCode %u; stack trace = %@", configLocCode, callStack()]);
+			return nil;
+			break;
+	}
+	
+	NSString * path = [[[prefix stringByAppendingPathComponent: configName]
+						stringByAppendingPathComponent: @"Contents"]
+					   stringByAppendingPathComponent: @"Resources"];
+	return path;
+}
+
+NSDictionary * getSafeEnvironment(NSString * configName, unsigned configLocCode) {
     
     // Create our own environment to guard against Shell Shock (BashDoor) and similar vulnerabilities in bash
     // (Even if bash is not being launched directly, whatever is being launched could invoke bash;
 	//  for example, openvpnstart launches openvpn which can invoke bash for scripts)
     //
+	// If configName is provided, the TUNNELBLICK_CONFIG_FOLDER variable is set to the path of the folder that contains the configuration file.
+	//
     // This environment consists of several standard shell variables
-    // If specified, we add the 'IV_GUI_VER' environment variable,
-    //                          which is set to "<bundle-id><space><build-number><space><human-readable-version>"
-    //
 	// A modified version of this routine is in process-network-changes
     // A modified version of this routine is in tunnelblickd
 	
@@ -1036,23 +1274,15 @@ NSDictionary * getSafeEnvironment(bool includeIV_GUI_VER) {
                                  @"unix2003",            @"COMMAND_MODE",
                                  nil];
     
-    if (  includeIV_GUI_VER  ) {
-        // We get the Info.plist contents as follows because NSBundle's objectForInfoDictionaryKey: method returns the object as it was at
-        // compile time, before the TBBUILDNUMBER is replaced by the actual build number (which is done in the final run-script that builds Tunnelblick)
-        // By constructing the path, we force the objects to be loaded with their values at run time.
-        NSString * plistPath    = [[[[NSBundle mainBundle] bundlePath]
-                                    stringByDeletingLastPathComponent] // Remove /Resources
-                                   stringByAppendingPathComponent: @"Info.plist"];
-        NSDictionary * infoDict = [NSDictionary dictionaryWithContentsOfFile: plistPath];
-        NSString * bundleId     = [infoDict objectForKey: @"CFBundleIdentifier"];
-        NSString * buildNumber  = [infoDict objectForKey: @"CFBundleVersion"];
-        NSString * fullVersion  = [infoDict objectForKey: @"CFBundleShortVersionString"];
-        NSString * guiVersion   = [NSString stringWithFormat: @"%@ %@ %@", bundleId, buildNumber, fullVersion];
-        
-        [env setObject: guiVersion forKey: @"IV_GUI_VER"];
-    }
-    
-    return [NSDictionary dictionaryWithDictionary: env];
+	if (  configName  ) {
+		NSString * path = configFolderPathFromConfigNameAndLocCode(configName, configLocCode);
+		if (  path ) {
+			[env setObject: path forKey: @"TUNNELBLICK_CONFIG_FOLDER"];
+		}
+	}
+	
+	return [NSDictionary dictionaryWithDictionary: env];
+
 }
 
 NSString * newTemporaryDirectoryPath(void)
@@ -1148,7 +1378,7 @@ OSStatus runTool(NSString * launchPath,
     [task setCurrentDirectoryPath: @"/private/tmp"];
     [task setStandardOutput: outFile];
     [task setStandardError:  errFile];
-    [task setEnvironment: getSafeEnvironment([[launchPath lastPathComponent] isEqualToString: @"openvpn"])];
+    [task setEnvironment: getSafeEnvironment(nil, 0)];
     
     [task launch];
     
@@ -1160,8 +1390,14 @@ OSStatus runTool(NSString * launchPath,
     [errFile closeFile];
     
     NSString * stdOutString = [NSString stringWithContentsOfFile: stdOutPath encoding: NSUTF8StringEncoding error: nil];
+	if (  stdOutString == nil  ) {
+		stdOutString = @"Could not interpret stdout as UTF-8";
+	}
     NSString * stdErrString = [NSString stringWithContentsOfFile: stdErrPath encoding: NSUTF8StringEncoding error: nil];
-    
+	if (  stdErrString == nil  ) {
+		stdErrString = @"Could not interpret stderr as UTF-8";
+	}
+	
     [[NSFileManager defaultManager] tbRemoveFileAtPath: tempDir handler: nil]; // Ignore errors; there is nothing we can do about them
     
     NSString * message = nil;
@@ -1197,7 +1433,7 @@ void startTool(NSString * launchPath,
     [task setLaunchPath: launchPath];
     [task setArguments:  arguments];
     [task setCurrentDirectoryPath: @"/private/tmp"];
-    [task setEnvironment: getSafeEnvironment([[launchPath lastPathComponent] isEqualToString: @"openvpn"])];
+    [task setEnvironment: getSafeEnvironment(nil, 0)];
     
     [task launch];
 }
@@ -1389,7 +1625,6 @@ OSStatus runTunnelblickd(NSString * command, NSString ** stdoutString, NSString 
     const char * requestToServer = [[NSString stringWithFormat: @"%s%@", TUNNELBLICKD_OPENVPNSTART_HEADER_C, command] UTF8String];
     const char * socketPath = [TUNNELBLICKD_SOCKET_PATH UTF8String];
     
-#define SOCKET_BUF_SIZE 1024
 	char buffer[SOCKET_BUF_SIZE];
     
     struct sockaddr_un socket_data;
@@ -1544,6 +1779,8 @@ NSString * sanitizedConfigurationContents(NSString * cfgContents) {
                                  @"<pkcs12>",
                                  @"<secret>",
                                  @"<tls-auth>",
+                                 @"<tls-crypt>",
+								 @"<tls-crypt-v2>",
                                  nil];
     
     NSArray * endInlineKeys = [NSArray arrayWithObjects:
@@ -1556,7 +1793,9 @@ NSString * sanitizedConfigurationContents(NSString * cfgContents) {
                                @"</pkcs12>",
                                @"</secret>",
                                @"</tls-auth>",
-                               nil];
+                               @"</tls-crypt>",
+							   @"</tls-crypt-v2>",
+                              nil];
     
     unsigned i;
     for (  i=0; i<[lines count]; i++  ) {

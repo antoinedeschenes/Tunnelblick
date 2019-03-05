@@ -20,6 +20,104 @@ logMessage()
 	echo "${@}"
 }
 
+##########################################################################################
+run_prefix_or_suffix()
+{
+# @param String 'route-pre-down-prefix.sh' or 'route-pre-down-suffix.sh'
+#
+# Execute the specified script (if it exists) in a subshell with the arguments with which this script was called.
+#
+# Tunnelblick starts OpenVPN with --set-env TUNNELBLICK_CONFIG_FOLDER <PATH>
+# where <PATH> is the path to the folder containing the OpenVPN configuration file.
+# That folder is where the script will be (if it exists).
+
+	if [  -z "$TUNNELBLICK_CONFIG_FOLDER" ] ; then
+		logMessage "The 'TUNNELBLICK_CONFIG_FOLDER' environment variable is missing or empty"
+		exit 1
+	fi
+
+	if [ "$1" != "route-pre-down-prefix.sh" ] && [ "$1" != "route-pre-down-suffix.sh" ] ; then
+		logMessage "run_prefix_or_suffix not called with 'route-pre-down-prefix.sh' or 'route-pre-down-suffix.sh'"
+		exit 1
+	fi
+
+	if [ -e "$TUNNELBLICK_CONFIG_FOLDER/$1" ] ; then
+		logMessage "---------- Start of output from $1"
+
+		set +e
+			(  "$TUNNELBLICK_CONFIG_FOLDER/$1" ${SCRIPT_ARGS[*]}  )
+			local status=$?
+		set -e
+
+		logMessage "---------- End of output from $1"
+
+		if [ $status -ne 0 ] ; then
+			logMessage "ERROR: $1 exited with error status $status"
+			exit $status
+		fi
+	fi
+}
+
+##########################################################################################
+# @param String "true" if should disable network access if disconnect was expected
+# @param String "true" if should disable network access if disconnect was not expected
+disableNetworkAccess()
+{
+
+	# Disables network access by powering off Wi-Fi and disabling all other network services.
+	#
+	# Appends list of services that were disabled (including Wi-Fi) to a file which is used by
+	# re-enable-network-services.sh to re-enable network services that were disabled by this script.
+
+	should_disable="$2"
+	expected_folder_path="/Library/Application Support/Tunnelblick/expect-disconnect"
+	if [ -e "$expected_folder_path/ALL" ] ; then
+		should_disable="$1"
+	else
+		filename="$( echo "${TUNNELBLICK_CONFIG_FOLDER}" | sed -e 's/-/--/g' | sed -e 's/\./-D/g' | sed -e 's/\//-S/g' )"
+		if [ -e "$expected_folder_path/$filename" ]; then
+			should_disable="$1"
+		fi
+	fi
+
+	if [ "$should_disable" != "true" ] ; then
+		return
+	fi
+
+	list_path="/Library/Application Support/Tunnelblick/disabled-network-services.txt"
+
+	# Get list of services (remove the first line which contains a heading)
+	dia_services="$( networksetup  -listallnetworkservices | sed -e '1,1d')"
+
+	# Go through the list disabling the interface for enabled services
+	printf %s "$dia_services
+" | \
+	while IFS= read -r dia_service ; do
+
+		# If first character of a line is an asterisk, the service is disabled, so we skip it
+		if [ "${dia_service:0:1}" != "*" ] ; then
+
+			if [ "$dia_service" = "Wi-Fi" ] ; then
+				dia_interface="$(networksetup -listallhardwareports | awk '$3=="Wi-Fi" {getline; print $2}')"
+				dia_airport_power="$( networksetup -getairportpower "$dia_interface" | sed -e 's/^.*: //g' )"
+				if [  "$dia_airport_power" = "On"  ] ; then
+					networksetup -setairportpower "$dia_interface" off
+					logMessage "Turned off $dia_service ($dia_interface)"
+					echo -n "\"Wi-Fi\" " >> "$list_path"
+				else
+					logMessage "$dia_service ($dia_interface) was already off"
+				fi
+			else
+				# (We already know it is enabled from the above)
+				networksetup -setnetworkserviceenabled "$dia_service" off
+				logMessage "Disabled $dia_service"
+				echo -n "\"$dia_service\" " >> "$list_path"
+			fi
+		fi
+
+	done
+}
+
 trap "" TSTP
 trap "" HUP
 trap "" INT
@@ -30,16 +128,58 @@ readonly OUR_NAME=$(basename "${0}")
 logMessage "**********************************************"
 logMessage "Start of output from ${OUR_NAME}"
 
+# Test for the "-k" and "-ku" Tunnelbick options (Disable network access after disconnecting).
+# Usually we get the value for that option (and the other options) from State:/Network/OpenVPN,
+# but that key may not exist (because, for example, there were no DNS changes).
+# So we get the value from the Tunnelblick options passed to this script by OpenVPN.
+ARG_DISABLE_INTERNET_ACCESS_AFTER_DISCONNECTING="false"
+ARG_DISABLE_INTERNET_ACCESS_AFTER_DISCONNECTING_UNEXPECTED="false"
+while [ $# -ne 0 ] ; do
+
+	if [ "${1:0:1}" != "-" ] ; then				# Tunnelblick arguments start with "-" and come first
+		break                                   # so if this one doesn't start with "-" we are done processing Tunnelblick arguments
+	fi
+
+	if [ "$1" = "-k" ] ; then
+		ARG_DISABLE_INTERNET_ACCESS_AFTER_DISCONNECTING="true"
+
+	elif [ "$1" = "-ku" ] ; then
+		ARG_DISABLE_INTERNET_ACCESS_AFTER_DISCONNECTING_UNEXPECTED="true"
+	fi
+
+	if [ "${1:0:1}" = "-" ] ; then				# Shift out Tunnelblick arguments (they start with "-") that we don't understand
+		shift									# so the rest of the script sees only the OpenVPN arguments
+	else
+		break
+	fi
+done
+
+# Remember the OpenVPN arguments this script was started with so that run_prefix_or_suffix can pass them on to 'up-prefix.sh' and 'up-suffix.sh'
+declare -a SCRIPT_ARGS
+SCRIPT_ARGS_COUNT=$#
+for ((SCRIPT_ARGS_INDEX=0; SCRIPT_ARGS_INDEX<SCRIPT_ARGS_COUNT; ++SCRIPT_ARGS_INDEX)) ; do
+	SCRIPT_ARG="$(printf "%q" "$1")"
+	SCRIPT_ARGS[$SCRIPT_ARGS_INDEX]="$(printf "%q" "$SCRIPT_ARG")"
+	shift
+done
+
+readonly ARG_DISABLE_INTERNET_ACCESS_AFTER_DISCONNECTING ARG_DISABLE_INTERNET_ACCESS_AFTER_DISCONNECTING_UNEXPECTED SCRIPT_ARGS
+
+run_prefix_or_suffix 'route-pre-down-prefix.sh'
+
 # Quick check - is the configuration there?
 if ! scutil -w State:/Network/OpenVPN &>/dev/null -t 1 ; then
-	# Configuration isn't there, so we forget it
-	logMessage "WARNING: No saved Tunnelblick DNS configuration found; not doing anything."
+
+	# Configuration isn't there
+	logMessage "WARNING: Not restoring DNS settings because no saved Tunnelblick DNS information was found."
+
+	disableNetworkAccess $ARG_DISABLE_INTERNET_ACCESS_AFTER_DISCONNECTING $ARG_DISABLE_INTERNET_ACCESS_AFTER_DISCONNECTING_UNEXPECTED
+
+	run_prefix_or_suffix 'route-pre-down-suffix.sh'
     logMessage "End of output from ${OUR_NAME}"
     logMessage "**********************************************"
 	exit 0
 fi
-
-# NOTE: This script does not use any arguments passed to it by OpenVPN, so it doesn't shift Tunnelblick options out of the argument list
 
 # Get info saved by the up script
 TUNNELBLICK_CONFIG="$( scutil <<-EOF
@@ -103,7 +243,7 @@ EOF
             if [ -n "${sTunnelDevice}" ]; then
                 logMessage "ERROR: \$dev not defined; using TunnelDevice: ${sTunnelDevice}"
                 set +e
-                ipconfig set "${sTunnelDevice}" NONE 2>/dev/null
+					ipconfig set "${sTunnelDevice}" NONE 2>/dev/null
                 set -e
                 logMessage "Released the DHCP lease via ipconfig set \"${sTunnelDevice}\" NONE."
             else
@@ -111,7 +251,7 @@ EOF
             fi
         else
             set +e
-            ipconfig set "$dev" NONE 2>/dev/null
+				ipconfig set "$dev" NONE 2>/dev/null
             set -e
             logMessage "Released the DHCP lease via ipconfig set \"$dev\" NONE."
         fi
@@ -126,13 +266,16 @@ EOF
         quit
 EOF
     else
-        logMessage "NOTE: No action by ${OUR_NAME} is needed because this TAP connection does not use DHCP via the TAP device."
+        logMessage "NOTE: No DHCP release by ${OUR_NAME} is needed because this TAP connection does not use DHCP via the TAP device."
 	fi
 else
-    logMessage "No action by ${OUR_NAME} is needed because this is not a TAP connection."
+    logMessage "No DHCP release by ${OUR_NAME} is needed because this is not a TAP connection."
 fi
+
+disableNetworkAccess $ARG_DISABLE_INTERNET_ACCESS_AFTER_DISCONNECTING $ARG_DISABLE_INTERNET_ACCESS_AFTER_DISCONNECTING_UNEXPECTED
+
+run_prefix_or_suffix 'route-pre-down-suffix.sh'
 
 logMessage "End of output from ${OUR_NAME}"
 logMessage "**********************************************"
-
 exit 0

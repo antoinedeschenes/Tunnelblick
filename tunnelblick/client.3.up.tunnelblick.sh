@@ -18,7 +18,7 @@ ARG_RESTORE_ON_WINS_RESET="false"
 ARG_TAP="false"
 ARG_TB_PATH="/Applications/Tunnelblick.app"
 
-while [ {$#} ] ; do
+while [ $# -ne 0 ] ; do
     if [  "$1" = "-m" ] ; then                              # Handle the arguments we know about
         ARG_MONITOR_NETWORK_CONFIGURATION="true"            # by setting ARG_ script variables to their values
         shift                                               # Then shift them out
@@ -108,7 +108,7 @@ unset vDNS
 unset vWINS
 unset vOptions
 
-# We sleep here to allow time for OS X to process DHCP, DNS, and WINS settings
+# We sleep here to allow time for macOS to process DHCP, DNS, and WINS settings
 sleep 2
 
 while vForOptions=foreign_option_$nOptionIndex; [ -n "${!vForOptions}" ]; do

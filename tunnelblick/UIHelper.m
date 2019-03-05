@@ -1,5 +1,5 @@
 /*
- * Copyright 2015, 2016 Jonathan K. Bullard. All rights reserved.
+ * Copyright 2015, 2016, 2018 Jonathan K. Bullard. All rights reserved.
  *
  *  This file is part of Tunnelblick.
  *
@@ -198,6 +198,127 @@ extern TBUserDefaults * gTbDefaults;
     [theControl setFrame:newFrame];
 }
 
++(void) performOnMainThreadDictionary: (NSDictionary *) dict {
+	
+	SEL selector = NSSelectorFromString([dict objectForKey: @"selectorName"]);
+	id  target   = [dict objectForKey: @"target"];
+	id  object   = [dict objectForKey: @"object"];
+	[target performSelectorOnMainThread: selector withObject: object waitUntilDone: NO];
+}
+
++(void) performSelectorName: (NSString *) selectorName
+					 target: (id)         target
+				 withObject: (NSObject *) object
+	 onMainThreadAfterDelay: (NSTimeInterval) delay {
+	
+	if (   ( ! selectorName )
+		|| ( ! target )  ) {
+		NSLog(@"Error: performSelectorName: %@ target: %@ withObject: %@ onMainThreadAfterDelay %f",
+			  selectorName, target, object, delay);
+		[[NSApp delegate] terminateBecause: terminatingBecauseOfError];
+		return;
+	}
+	
+	if (  ! object  ) {
+		object = [NSNull null];
+	}
+	
+	NSDictionary * dict = [NSDictionary dictionaryWithObjectsAndKeys:
+						   selectorName, @"selectorName",
+						   target,		 @"target",
+						   object,       @"object",
+						   nil];
+	
+	[self performSelector: @selector(performOnMainThreadDictionary:) withObject: dict afterDelay: delay];
+}
+
++(BOOL) canAcceptFileTypesInPasteboard: (NSPasteboard *) pboard {
+	
+	// Accept a single .tblkSetup or multiple configurations but don't accept a mix or multiple .tblkSetups
+	
+	NSArray * configExtensions = [NSArray arrayWithObjects: @"ovpn", @"conf", @"tblk", nil];
+	
+	NSString * type = [pboard availableTypeFromArray: [NSArray arrayWithObject: NSFilenamesPboardType]];
+	if (  ! [type isEqualToString: NSFilenamesPboardType]  ) {
+		TBLog(@"DB-SI", @"canAcceptFileTypesInPasteboard: returning NO because no 'NSFilenamesPboardType' entries are available in the pasteboard.");
+		return NO;
+	}
+	
+	NSArray * paths = [pboard propertyListForType: NSFilenamesPboardType];
+	NSUInteger i;
+	BOOL haveSetup         = FALSE;
+	BOOL haveConfiguration = FALSE;
+	for (  i=0; i<[paths count]; i++  ) {
+		NSString * path = [paths objectAtIndex:i];
+		if (  [configExtensions containsObject: [path pathExtension]]  ) {
+			if (  haveSetup  ) {
+				TBLog(@"DB-SI", @"canAcceptFileTypesInPasteboard: have seen a .tblkSetup, so returning NO for '%@' in '%@'", [path lastPathComponent], [path stringByDeletingLastPathComponent]);
+				return NO;
+			}
+			haveConfiguration = TRUE;
+			TBLog(@"DB-SI", @"canAcceptFileTypesInPasteboard: acceptable: '%@' in '%@'", [path lastPathComponent], [path stringByDeletingLastPathComponent]);
+		} else if (  [[path pathExtension] isEqualToString: @"tblkSetup"]  ) {
+			if (  haveConfiguration  ) {
+				TBLog(@"DB-SI", @"canAcceptFileTypesInPasteboard: have seen a configuration, so returning NO for '%@' in '%@'", [path lastPathComponent], [path stringByDeletingLastPathComponent]);
+				return NO;
+			}
+			if (  [(MenuController *)[NSApp delegate] showingImportSetupWindow]  ) {
+				TBLog(@"DB-SI", @"canAcceptFileTypesInPasteboard: already importing a .tblksetup, so returning NO for '%@' in '%@'", [path lastPathComponent], [path stringByDeletingLastPathComponent]);
+				return NO;
+			}
+			if (  haveSetup  ) {
+				TBLog(@"DB-SI", @"canAcceptFileTypesInPasteboard: have seen a .tblkSetup, so returning NO for '%@' in '%@'", [path lastPathComponent], [path stringByDeletingLastPathComponent]);
+				return NO;
+			}
+			haveSetup = TRUE;
+			TBLog(@"DB-SI", @"canAcceptFileTypesInPasteboard: acceptable: '%@' in '%@'", [path lastPathComponent], [path stringByDeletingLastPathComponent]);
+		} else {
+			TBLog(@"DB-SI", @"canAcceptFileTypesInPasteboard: unknown extension, so returning NO for '%@' in '%@'", [path lastPathComponent], [path stringByDeletingLastPathComponent]);
+			return NO;
+		}
+	}
+	
+	TBLog(@"DB-SI", @"canAcceptFileTypesInPasteboard: returning 'YES'");
+	return YES;
+}
+
++(NSDragOperation)draggingEntered:(id <NSDraggingInfo>)sender {
+	
+	NSDragOperation sourceDragMask = [sender draggingSourceOperationMask];
+	NSPasteboard * pboard = [sender draggingPasteboard];
+	
+	if (  [[pboard types] containsObject: NSFilenamesPboardType]  ) {
+		if (  [self canAcceptFileTypesInPasteboard: pboard]  ) {
+			if (  sourceDragMask & NSDragOperationCopy  ) {
+				TBLog(@"DB-SI", @"draggingEntered: returning YES");
+				return NSDragOperationCopy;
+			} else {
+				TBLog(@"DB-SI", @"draggingEntered: returning NO because source does not allow copy operation");
+			}
+		}
+	}
+	
+	TBLog(@"DB-SI", @"draggingEntered: returning NO");
+	return NSDragOperationNone;
+}
+
++(BOOL) performDragOperation:(id <NSDraggingInfo>)sender {
+	
+	NSPasteboard *pboard = [sender draggingPasteboard];
+	
+	if ( [[pboard types] containsObject: NSFilenamesPboardType] ) {
+		NSArray * files = [pboard propertyListForType:NSFilenamesPboardType];
+			
+			[self performSelectorName:@"openFiles:" target: [NSApp delegate] withObject: files onMainThreadAfterDelay: 0.5];
+		
+		TBLog(@"DB-SI", @"performDragOperation: returning YES");
+		return YES;
+	}
+	
+	TBLog(@"DB-SI", @"performDragOperation: returning NO because pasteboard does not contain 'NSFilenamesPboardType'");
+	return NO;
+}
+
 +(void) showAlertWindow: (NSDictionary *) dict {
     
     // This method is invoked on the main thread by TBShowAlertWindow() when it is called but is not running on the main thread
@@ -207,10 +328,15 @@ extern TBUserDefaults * gTbDefaults;
         [self performSelectorOnMainThread: @selector(showAlertWindow:)  withObject: dict waitUntilDone: NO];
         return;
     }
-    
-    NSString * title = [dict objectForKey: @"title"];
-    NSString * msg   = [dict objectForKey: @"msg"];
-    TBShowAlertWindow(title, msg);
+
+	TBShowAlertWindowExtended(nilIfNSNull([dict objectForKey: @"title"]),
+							  nilIfNSNull([dict objectForKey: @"msg"]),
+							  nilIfNSNull([dict objectForKey: @"preferenceToSetTrue"]),
+							  nilIfNSNull([dict objectForKey: @"preferenceName"]),
+							  nilIfNSNull([dict objectForKey: @"preferenceValue"]),
+							  nilIfNSNull([dict objectForKey: @"checkboxTitle"]),
+							  nilIfNSNull([dict objectForKey: @"checkboxInfoTitle"]),
+							             [[dict objectForKey: @"checkboxIsOn"] boolValue]);
 }
 
 +(void) showSuccessNotificationTitle: (NSString *) title
@@ -218,27 +344,25 @@ extern TBUserDefaults * gTbDefaults;
     
 	if (  runningOnMountainLionOrNewer()  ) {
 		
-        // NSUserNotification and NSUserNotificationCenter are not defined in the Xcode 3.2.2 SDK, so we use NSClassFromString() to access them
-        
-		id notification = [[[NSClassFromString(@"NSUserNotification") alloc] init] autorelease];
+        NSUserNotification * notification = [[[NSUserNotification alloc] init] autorelease];
         if (  ! notification  ) {
-            NSLog(@"No result from '[[[NSClassFromString(@\"NSUserNotification\") alloc] init] autorelease]'");
+            NSLog(@"Cannot create NSUserNotification");
             TBShowAlertWindow(title, msg);
             return;
         }
         
-		[notification performSelector: @selector(setTitle:)           withObject: title];
-		[notification performSelector: @selector(setInformativeText:) withObject: msg];
-		[notification performSelector: @selector(setSoundName:)       withObject: @"NSUserNotificationDefaultSoundName"];
+		[notification setTitle:           title];
+		[notification setInformativeText: msg];
+		[notification setSoundName:       @"NSUserNotificationDefaultSoundName"];
 		
-		id center = [NSClassFromString(@"NSUserNotificationCenter") performSelector: @selector(defaultUserNotificationCenter)];
+		NSUserNotificationCenter * center = [NSUserNotificationCenter defaultUserNotificationCenter];
         if (  ! center  ) {
-            NSLog(@"No result from '[NSClassFromString(@\"NSUserNotificationCenter\") performSelector: @selector(defaultUserNotificationCenter)]'");
+            NSLog(@"Cannot create NSUserNotificationCenter");
             TBShowAlertWindow(title, msg);
             return;
         }
         
-		[center performSelector: @selector(deliverNotification:) withObject: notification];
+		[center deliverNotification: notification];
 		
 	} else {
 		

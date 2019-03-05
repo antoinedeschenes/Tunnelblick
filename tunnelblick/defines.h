@@ -1,5 +1,5 @@
 /*
- * Copyright 2010, 2011, 2012, 2013, 2014, 2015, 2016 Jonathan K. Bullard. All rights reserved.
+ * Copyright 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018 Jonathan K. Bullard. All rights reserved.
  *
  *  This file is part of Tunnelblick.
  *
@@ -39,11 +39,27 @@
 // The newline character as a unichar
 #define UNICHAR_LF [@"\n" characterAtIndex:0]
 
-// Maximum port number
-#define MAX_PORT_NUMBER 65536
+// Range of ports to be used to connect to the OpenVPN management interface.
+// We chose one dynamic/private/ephemeral port per connection at random within this range.
+// (See https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.xhtml)
+#define MIN_MANAGMENT_INTERFACE_PORT_NUMBER 49152
+#define MAX_MANAGMENT_INTERFACE_PORT_NUMBER 65535
+
+// Maximum length of a response from https://tunnelblick.net/ipinfo
+// Will be IP,port#,IP. An IPv6 addresses takes up to 39 bytes, port# up to five, and two commas separating the three items, so 78 + 5 + 2 = 85 bytes.
+// So we use 90 to give ourself some breathing room (to allow CR-LF at the end, for example, although ipinfo currently doesn't return one).
+#define TUNNELBLICK_DOT_NET_IPINFO_RESPONSE_MAX_LENGTH 90
+
+#define SECONDS_PER_DAY ( 24 * 60 * 60 )
 
 // Maximum hotKey index
 #define MAX_HOTKEY_IX 12
+
+// Socket buffer size for tunnelblickd. password + prefix + command must fit in this
+#define SOCKET_BUF_SIZE 2048
+
+// Limited because we create a popup button which lists all of them
+#define MAX_NUMBER_OF_TARGET_USERNAMES_FOR_IMPORT_WINDOW 64
 
 // Minimum, maximum, and default log size (bytes)
 #define MIN_LOG_SIZE_BYTES 10000
@@ -63,13 +79,15 @@
 #define MAX_VERSIONS_IN_HISTORY 10
 
 // Maximum index for the "Set DNS/WINS" dropdown box. Must be equal to the number of entries minus one.
-#define MAX_SET_DNS_WINS_INDEX 4
+#define MAX_SET_DNS_WINS_INDEX 5
 
 // Header for commands to tunnelblickd that are to be handled by openvpnstart (note that this is a C-string, not an NSString)
 #define TUNNELBLICKD_OPENVPNSTART_HEADER_C "openvpnstart: "
 
 //*************************************************************************************************
 // Paths:
+
+#define L_AS_T        @"/Library/Application Support/Tunnelblick"
 
 // NOTE: Several up scripts refer to the log directory without using this header file
 #define L_AS_T_LOGS   @"/Library/Application Support/Tunnelblick/Logs"
@@ -84,10 +102,15 @@
 #define L_AS_T_TUNNELBLICKD_HASH_PATH                 @"/Library/Application Support/Tunnelblick/tunnelblickd-hash.txt"
 #define L_AS_T_TUNNELBLICKD_LAUNCHCTL_PLIST_HASH_PATH @"/Library/Application Support/Tunnelblick/tunnelblickd-launchctl-plist-hash.txt"
 
+// NOTE: some scripts refer to the following two paths without using this header file
+#define L_AS_T_DISABLED_NETWORK_SERVICES_PATH         @"/Library/Application Support/Tunnelblick/disabled-network-services.txt"
+#define L_AS_T_EXPECT_DISCONNECT_FOLDER_PATH          @"/Library/Application Support/Tunnelblick/expect-disconnect"
+
+// NOTE: some scripts refer to the following path without using this header file
 #define AUTHORIZED_RUNNING_PATH @"/tmp/tunnelblick-authorized-running"
 #define AUTHORIZED_ERROR_PATH   @"/tmp/tunnelblick-authorized-error"
 
-// NOTE: some up and down scripts refer to the following path without using this header file
+// NOTE: some scripts refer to the following path without using this header file
 #define DOWN_SCRIPT_NEEDS_TO_BE_RUN_PATH @"/tmp/tunnelblick-downscript-needs-to-be-run.txt"
 
 // NOTE: tunnelblick-uninstaller.sh refers to the installer log path without using this header file
@@ -105,21 +128,23 @@
 // NOTE: tunnelblick-uninstaller.sh refers to the .plist path without using this header file
 #define TUNNELBLICKD_PLIST_PATH @"/Library/LaunchDaemons/net.tunnelblick.tunnelblick.tunnelblickd.plist"
 
-#define TOOL_PATH_FOR_ARCH       @"/usr/bin/arch"
-#define TOOL_PATH_FOR_BASH       @"/bin/bash"
-#define TOOL_PATH_FOR_CODESIGN   @"/usr/bin/codesign"
-#define TOOL_PATH_FOR_DISKUTIL   @"/usr/sbin/diskutil"
-#define TOOL_PATH_FOR_ID         @"/usr/bin/id"
-#define TOOL_PATH_FOR_IFCONFIG   @"/sbin/ifconfig"
-#define TOOL_PATH_FOR_KEXTLOAD   @"/sbin/kextload"
-#define TOOL_PATH_FOR_KEXTSTAT   @"/usr/sbin/kextstat"
-#define TOOL_PATH_FOR_KEXTUNLOAD @"/sbin/kextunload"
-#define TOOL_PATH_FOR_KILLALL    @"/usr/bin/killall"
-#define TOOL_PATH_FOR_LAUNCHCTL  @"/bin/launchctl"
-#define TOOL_PATH_FOR_OSASCRIPT  @"/usr/bin/osascript"
-#define TOOL_PATH_FOR_PLUTIL     @"/usr/bin/plutil"
-#define TOOL_PATH_FOR_PS         @"/bin/ps"
-#define TOOL_PATH_FOR_SCUTIL     @"/usr/sbin/scutil"
+#define TOOL_PATH_FOR_ARCH			@"/usr/bin/arch"
+#define TOOL_PATH_FOR_BASH			@"/bin/bash"
+#define TOOL_PATH_FOR_CODESIGN		@"/usr/bin/codesign"
+#define TOOL_PATH_FOR_DISKUTIL		@"/usr/sbin/diskutil"
+#define TOOL_PATH_FOR_ID			@"/usr/bin/id"
+#define TOOL_PATH_FOR_IFCONFIG		@"/sbin/ifconfig"
+#define TOOL_PATH_FOR_KEXTLOAD		@"/sbin/kextload"
+#define TOOL_PATH_FOR_KEXTSTAT		@"/usr/sbin/kextstat"
+#define TOOL_PATH_FOR_KEXTUNLOAD	@"/sbin/kextunload"
+#define TOOL_PATH_FOR_KILLALL		@"/usr/bin/killall"
+#define TOOL_PATH_FOR_LAUNCHCTL		@"/bin/launchctl"
+#define TOOL_PATH_FOR_NETWORKSETUP	@"/usr/sbin/networksetup"
+#define TOOL_PATH_FOR_OSASCRIPT		@"/usr/bin/osascript"
+#define TOOL_PATH_FOR_PLUTIL		@"/usr/bin/plutil"
+#define TOOL_PATH_FOR_PS			@"/bin/ps"
+#define TOOL_PATH_FOR_SCUTIL		@"/usr/sbin/scutil"
+#define TOOL_PATH_FOR_TAR			@"/usr/bin/tar"
 
 // The number of characters in each line of output from "ps -A" that are before the process' command line
 #define PS_CHARACTERS_BEFORE_COMMAND  25
@@ -160,10 +185,10 @@
 
 //*************************************************************************************************
 // OpenVPN options that are not allowed because they conflict with the operation of Tunnelblick
-#define OPENVPN_OPTIONS_THAT_CAN_ONLY_BE_USED_BY_TUNNELBLICK [NSArray arrayWithObjects: @"log", @"log-append", @"syslog", @"management", nil]
+#define OPENVPN_OPTIONS_THAT_CAN_ONLY_BE_USED_BY_TUNNELBLICK [NSArray arrayWithObjects: @"log", @"log-append", @"syslog", @"config", nil]
 
 //*************************************************************************************************
-// OpenVPN options that are not allowed on OS X
+// OpenVPN options that are not allowed on macOS
 #define OPENVPN_OPTIONS_THAT_ARE_WINDOWS_ONLY [NSArray arrayWithObjects: @"allow-nonadmin", @"cryptoapicert", @"dhcp-release", @"dhcp-renew", @"pause-exit", @"register-dns", @"service", @"show-adapters", @"show-net", @"show-net-up", @"show-valid-subnets", @"tap-sleep", @"win-sys", nil]
 
 //*************************************************************************************************
@@ -201,31 +226,36 @@
 //                             /Applications/XXXXX.app/Contents/Resources/Deploy/
 //                             (These folders are owned by root:wheel)
 //
-// _FOLDER     entries are for folders
-// _SCRIPT     entries are for files with the .sh extension
-// _EXECUTABLE entries are for files with the .executable extension (in Deploy folders only)
-// _READABLE   entries are for files (such as Info.plist files) that should be readable (by owner/group in private configurations, by everyone everywhere else)
-// _OTHER      entries are for all other files
+// _FOLDER      entries are for folders
+// _ROOT_SCRIPT entries are for files with the .sh extension that run as root
+// _USER_SCRIPT entries are for files with the .sh extension that run as the user -- that is, if shouldRunScriptAsUserAtPath()
+// _EXECUTABLE  entries are for files with the .executable extension (in Deploy folders only)
+// _READABLE    entries are for files (such as Info.plist files) that should be readable (by owner/group in private configurations, by everyone everywhere else)
+// _OTHER       entries are for all other files
 
 
-#define PERMS_PRIVATE_FOLDER     0750
-#define PERMS_PRIVATE_SCRIPT     0740
-#define PERMS_PRIVATE_EXECUTABLE 0740
-#define PERMS_PRIVATE_READABLE   0740
-#define PERMS_PRIVATE_OTHER      0740
+#define PERMS_PRIVATE_FOLDER      0750
+#define PERMS_PRIVATE_ROOT_SCRIPT 0740
+#define PERMS_PRIVATE_USER_SCRIPT 0740
+#define PERMS_PRIVATE_EXECUTABLE  0740
+#define PERMS_PRIVATE_READABLE    0740
+#define PERMS_PRIVATE_OTHER       0740
 
-#define PERMS_PRIVATE_REMOTE_FOLDER     0700
-#define PERMS_PRIVATE_REMOTE_SCRIPT     0700
-#define PERMS_PRIVATE_REMOTE_EXECUTABLE 0700
-#define PERMS_PRIVATE_REMOTE_READABLE   0700
-#define PERMS_PRIVATE_REMOTE_OTHER      0700
+#define PERMS_PRIVATE_REMOTE_FOLDER      0700
+#define PERMS_PRIVATE_REMOTE_ROOT_SCRIPT 0700
+#define PERMS_PRIVATE_REMOTE_USER_SCRIPT 0700
+#define PERMS_PRIVATE_REMOTE_EXECUTABLE  0700
+#define PERMS_PRIVATE_REMOTE_READABLE    0700
+#define PERMS_PRIVATE_REMOTE_OTHER       0700
 
-#define PERMS_SECURED_FOLDER     0755
-#define PERMS_SECURED_SCRIPT     0700
-#define PERMS_SECURED_EXECUTABLE 0755
-#define PERMS_SECURED_ROOT_EXEC  0744
-#define PERMS_SECURED_READABLE   0644
-#define PERMS_SECURED_OTHER      0700
+#define PERMS_SECURED_FOLDER      0755
+#define PERMS_SECURED_ROOT_SCRIPT 0700
+#define PERMS_SECURED_USER_SCRIPT 0755
+#define PERMS_SECURED_EXECUTABLE  0755
+#define PERMS_SECURED_ROOT_EXEC   0744
+#define PERMS_SECURED_ROOT_RO     0400
+#define PERMS_SECURED_READABLE    0644
+#define PERMS_SECURED_OTHER       0700
 
 
 //*************************************************************************************************
@@ -257,7 +287,7 @@
 #define OPENVPNSTART_PREPEND_DOMAIN_NAME				0x00000080u
 #define OPENVPNSTART_FLUSH_DNS_CACHE					0x00000100u
 #define OPENVPNSTART_USE_REDIRECT_GATEWAY_DEF1			0x00000200u
-#define OPENVPNSTART_RESET_PRIMARY_INTERFACE			0x00000400u
+#define OPENVPNSTART_DISABLE_LOGGING					0x00000400u
 #define OPENVPNSTART_TEST_MTU							0x00000800u
 #define OPENVPNSTART_EXTRA_LOGGING						0x00001000u
 #define OPENVPNSTART_NO_DEFAULT_DOMAIN					0x00002000u
@@ -268,9 +298,12 @@
 #define OPENVPNSTART_DO_NOT_WAIT_FOR_INTERNET			0x00040000u
 #define OPENVPNSTART_ENABLE_IPV6_ON_TAP					0x00080000u
 #define OPENVPNSTART_DISABLE_IPV6_ON_TUN				0x00100000u
-#define OPENVPNSTART_DISABLE_LOGGING					0x00200000u
+#define OPENVPNSTART_RESET_PRIMARY_INTERFACE			0x00200000u
+#define OPENVPNSTART_DISABLE_INTERNET_ACCESS			0x00400000u
+#define OPENVPNSTART_RESET_PRIMARY_INTERFACE_UNEXPECTED	0x00800000u
+#define OPENVPNSTART_DISABLE_INTERNET_ACCESS_UNEXPECTED	0x01000000u
 // DUPLICATE THE HIGHEST VALUE BELOW					vvvvvvvvvvv
-#define OPENVPNSTART_HIGHEST_BITMASK_BIT				0x00200000u
+#define OPENVPNSTART_HIGHEST_BITMASK_BIT				0x01000000u
 
 
 //*************************************************************************************************
@@ -293,6 +326,7 @@
 #define OPENVPNSTART_COMPARE_CONFIG_SAME             0
 #define OPENVPNSTART_REVERT_CONFIG_OK				 0
 #define OPENVPNSTART_UPDATE_SAFE_OK                  0
+#define OPENVPNSTART_COULD_NOT_LOAD_KEXT             247
 #define OPENVPNSTART_NO_SUCH_OPENVPN_PROCESS         248
 #define OPENVPNSTART_UPDATE_SAFE_NOT_OK              249
 #define OPENVPNSTART_REVERT_CONFIG_MISSING			 250
@@ -326,20 +360,75 @@
 //*************************************************************************************************
 // Bit masks for bitMask parameter of installer
 
+//********************************************
+// Bit masks for optional operations which will be
+// performed before the primary operation (if any)
+
+// Set to clear the installer log before
+// doing anything else
 #define INSTALLER_CLEAR_LOG				     0x0001u
 
+// Set to copy this app to /Applications
+// (any existing app will be moved to
+// the Trash)
 #define INSTALLER_COPY_APP                   0x0002u
 
+// Set to secure Tunnelblick.app and all of
+// its contents (forced TRUE if
+// INSTALLER_COPY_APP is set)
 #define INSTALLER_SECURE_APP                 0x0004u
-//                                           0x0008u  UNUSED, was "INSTALLER_HELPER_IS_TO_BE_SUID"
+
+// UNUSED
+// WAS INSTALLER_HELPER_IS_TO_BE_SUID        0x0008u
+
+// Set to secure all .tblk packages in
+// Configurations, Shared, and the
+// alternate configuration path
 #define INSTALLER_SECURE_TBLKS               0x0010u
+
+// Set to convert all .ovpn and .conf files
+// (and their associated keys, scripts,
+// etc.) to .tblk packages
 #define INSTALLER_CONVERT_NON_TBLKS          0x0020u
+
+// Set to move ~/Library/openvpn to
+// ~/Library/Application Support/Tunnelblick
 #define INSTALLER_MOVE_LIBRARY_OPENVPN       0x0040u
-#define INSTALLER_INSTALL_FORCED_PREFERENCES 0x0080u
+
+// UNUSED
+// WAS INSTALLER_INSTALL_FORCED_PREFERENCES  0x0008u
+
+// Set to replace tunnelblickd
 #define INSTALLER_REPLACE_DAEMON             0x0100u
 
-#define INSTALLER_MOVE_NOT_COPY              0x1000u
+//********************************************
+// PRIMARY OPERATION CODES
+// Each primary operation also requires one
+// or two additional arguments
+
+#define INSTALLER_OPERATION_MASK			 0xF000u
+
+// Copy one configuration
+#define INSTALLER_COPY						 0x0000u
+
+// Move one configuration
+#define INSTALLER_MOVE						 0x1000u
+
+// Delete one configuration
 #define INSTALLER_DELETE                     0x2000u
+
+// Copy one file to
+// L_AS_T_PRIMARY_FORCED_PREFERENCES_PATH
+#define INSTALLER_INSTALL_FORCED_PREFERENCES 0x3000u
+
+// Export the Tunnelblick setup for all
+// users (configurations and preferences but
+// not Keychain items) to a .tblkSetup, then
+// compress that to a .tar.gz on the Desktop
+#define INSTALLER_EXPORT_ALL                 0x4000u
+
+// Import from a .tblkSetup using a string that defines username mapping
+#define INSTALLER_IMPORT                     0x5000u
 
 
 //*************************************************************************************************
@@ -370,6 +459,12 @@ typedef enum
 //*************************************************************************************************
 // Debugging macro to NSLog if a specified preference is TRUE
 #define TBLog(preference_key, ...)     if (  [gTbDefaults boolForKey: preference_key] || [gTbDefaults boolForKey: @"DB-ALL"]  ) NSLog(preference_key @": "  __VA_ARGS__);
+
+
+//*************************************************************************************************
+// Macros to make it easy to use nil values in dictionaries or arrays
+#define NSNullIfNil(v) (v                  ? v   : [NSNull null])
+#define nilIfNSNull(v) (v != [NSNull null] ? v   : nil)
 
 //*************************************************************************************************
 // Tiger-compatible macros that implement something like @property and @synthesize
@@ -452,6 +547,301 @@ name = newValue;                                    \
 }                                                       \
 
 
+#define NON_CONFIGURATIONS_PREFERENCES_NSARRAY @[	\
+@"DB-ALL",    /* All extra logging */	\
+@"DB-AA",     /* Extra logging for system authorization (for executeAuthorized) */	\
+@"DB-AU",	  /* Extra logging for VPN authorization */	\
+@"DB-CD",     /* Extra logging for connect/disconnect */	\
+@"DB-DD",     /* Extra logging for drag/drop onto VPN Details window */	\
+@"DB-HU",     /* Extra logging for hookup, */	\
+@"DB-IC",     /* Extra logging for IP address checking */	\
+@"DB-IT",     /* Extra logging for IP address check threading */	\
+@"DB-MC",	  /* Extra logging for menu cache creation and use */	\
+@"DB-MO",     /* Extra logging for mouseover (of icon and status windows) */	\
+@"DB-PU",     /* Extra logging for information popups */	\
+@"DB-SD",     /* Extra logging for shutdown */	\
+@"DB-SI",     /* Extra logging for status item creation/deletion/move */	\
+@"DB-SU",     /* Extra logging for startup */	\
+@"DB-SW",     /* Extra logging for sleep/wake and inactive user/active user */	\
+@"DB-TD",     /* Extra logging for tunnelblickd interactions, */	\
+@"DB-TO",     /* Extra logging for terminating OpenVPN processes (via kill, killall, or socket) */	\
+@"DB-UC",     /* Extra logging for updating configurations */	\
+@"DB-UP",     /* Extra logging for the up script */	\
+@"DB-UU",	  /* Extra logging for UI updates */	\
+\
+@"useRtlLayout",	/* Use RTL language layout, regardless of language (for debugging RTL layout issues) */	\
+\
+@"allowNonAdminSafeConfigurationReplacement",  /* Must be forced; regular preference is ignored */	\
+\
+@"skipWarningAboutReprotectingConfigurationFile",	\
+@"skipWarningAboutSimultaneousConnections",	\
+@"skipWarningAboutConvertingToTblks",	\
+@"skipWarningThatCannotModifyConfigurationFile",	\
+@"skipWarningThatNameChangeDisabledUpdates",	\
+@"skipWarningAboutNonAdminUpdatingTunnelblick",	\
+@"skipWarningAboutUnknownOpenVpnProcesses",	\
+@"skipWarningAboutOnComputerStartAndTblkScripts",	\
+@"skipWarningAboutIgnoredConfigurations",	\
+@"skipWarningAboutConfigFileProtectedAndAlwaysExamineIt",	\
+@"skipWarningThatIPANotFetchedBeforeConnection",	\
+@"skipWarningThatIPAddressDidNotChangeAfterConnection",	\
+@"skipWarningThatDNSIsNotWorking",	\
+@"skipWarningThatInternetIsNotReachable",	\
+@"skipWarningAboutInvalidSignature",	\
+@"skipWarningAboutNoSignature",	\
+@"skipWarningAboutSystemClock",	\
+@"skipWarningAboutUnavailableOpenvpnVersions",	\
+@"skipWarningAbout64BitVersionOnSnowLeopardPointEight",	\
+@"skipWarningAbout64BitVersionWithTap",	\
+@"skipWarningAbout64BitVersionWithTunOnSnowLeopardPointEight",	\
+@"skipWarningAbout64BitVersionOnNonSnowLeopardPointEight",	\
+@"skipWarningAboutInstallsWithCommands",	\
+@"skipWarningAboutPreAuthorizedActivity",	\
+@"skipWarningAboutPlacingIconNearTheSpotlightIcon",	\
+@"skipWarningAboutReenablingInternetAccessOnConnect", \
+@"skipWarningAboutReenablingInternetAccessOnLaunch", \
+@"skipWarningAboutReenablingInternetAccessOnQuit", \
+\
+@"buildExpirationTimestamp",	\
+@"daysBeforeFirstWarningOfOldBuild",	\
+@"daysToDeferWarningOfOldBuild",	\
+\
+\
+@"timeoutForOpenvpnToTerminateAfterDisconnectBeforeAssumingItIsReconnecting",	\
+@"timeoutForIPAddressCheckBeforeConnection",	\
+@"timeoutForIPAddressCheckAfterConnection",	\
+@"timeoutForIPAddressCheckAfterSleeping",	\
+@"delayBeforeReconnectingAfterSleep",	\
+@"delayBeforeReconnectingAfterSleepAndIpaFetchError",	\
+@"delayBeforeIPAddressCheckAfterConnection",	\
+@"delayBeforeSlowDisconnectDialog",	\
+@"delayBeforePopupHelp",	\
+@"delayBeforeConnectingAfterReenablingNetworkServices", \
+@"hookupTimeout",	\
+@"displayUpdateInterval",	\
+\
+@"inhibitOutboundTunneblickTraffic",	\
+@"placeIconInStandardPositionInStatusBar",	\
+@"doNotMonitorConfigurationFolder",	\
+@"doNotCheckForNetworkReachabilityWhenConnecting", \
+@"doNotIgnoreSignal13",	\
+@"doNotLaunchOnLogin", /* DISABLE the ability to launch on login provided by launchAtNextLogin */	\
+@"launchAtNextLogin",	\
+@"onlyAdminsCanUnprotectConfigurationFiles",	\
+@"standardApplicationPath",	\
+@"doNotCreateLaunchTunnelblickLinkinConfigurations",	\
+@"menuIconSet",	\
+@"easy-rsaPath",	\
+@"IPAddressCheckURL",	\
+@"notOKToCheckThatIPAddressDidNotChangeAfterConnection",	\
+@"tunnelblickVersionHistory",	\
+@"statusDisplayNumber",	\
+@"lastLaunchTime",	\
+@"allow64BitIntelOpenvpnOnTigerOrLeopard",	\
+@"doNotRedisplayLoginOrPassphraseWindowAtScreenChangeOrWakeFromSleep",	\
+@"doNotEjectTunnelblickVolume",	\
+@"doNotCheckThatOpenvpnVersionIsCompatibleWithConfiguration",	\
+@"openvpnAllowsDynamicChallengeRegardlessOfAuthRetrySetting",	\
+\
+@"disableAdvancedButton",	\
+@"disableCheckNowButton",	\
+@"disableResetDisabledWarningsButton",	\
+@"disableAddConfigurationButton",	\
+@"disableRemoveConfigurationButton",	\
+@"disableWorkOnConfigurationButton",	\
+@"disableRenameConfigurationMenuItem",	\
+@"disableDuplicateConfigurationMenuItem",	\
+@"disableMakeConfigurationPublicOrPrivateMenuItem",	\
+@"disableRevertToShadowMenuItem",	\
+@"disableShowHideOnTbMenuItem",	\
+@"disableExamineOpenVpnConfigurationFileMenuItem",	\
+@"disableShowOpenVpnLogInFinderMenuItem",	\
+@"disableDeleteConfigurationCredentialsInKeychainMenuItem",	\
+@"disableCopyLogToClipboardButton",	\
+\
+@"doNotShowNotificationWindowBelowIconOnMouseover",	\
+@"doNotShowNotificationWindowOnMouseover",	\
+@"doNotShowDisconnectedNotificationWindows",	\
+@"doNotShowConnectionSubmenus",	\
+@"doNotShowVpnDetailsMenuItem",	\
+@"doNotShowSuggestionOrBugReportMenuItem",	\
+@"doNotShowAddConfigurationMenuItem",	\
+@"doNotShowSplashScreen",	\
+@"doNotShowOutlineViewOfConfigurations",	\
+@"showConnectedDurations",	\
+\
+@"chooseSameOpenvpnOverSameSsl",	\
+\
+@"welcomeURL",	\
+@"welcomeWidth",	\
+@"welcomeHeight",	\
+@"doNotShowWelcomeDoNotShowAgainCheckbox",	\
+@"skipWelcomeScreen",	\
+@"lastLanguageAtLaunchWasRTL",	\
+\
+@"openvpnVersion",	\
+@"maximumNumberOfTabs",	\
+@"maxConfigurationsForUncachedMenu",	\
+@"onlyAdminCanUpdate",	\
+@"connectionWindowDisplayCriteria",	\
+@"showTooltips",	\
+@"maxLogDisplaySize",	\
+@"lastConnectedDisplayName",	\
+@"keyboardShortcutIndex",	\
+@"doNotUnrebrandLicenseDescription",	\
+@"useSharedConfigurationsWithDeployedOnes",	\
+@"usePrivateConfigurationsWithDeployedOnes",	\
+@"namedCredentialsThatAllConfigurationsUse",	\
+@"namedCredentialsNames",	\
+\
+@"delayToShowStatistics",	\
+@"delayToHideStatistics",	\
+@"statisticsRateTimeInterval",	\
+\
+@"updateCheckAutomatically",	\
+@"updateCheckBetas",	\
+@"updateCheckInterval",	\
+@"updateFeedURL",	\
+\
+@"NSWindow Frame SettingsSheetWindow",	\
+@"NSWindow Frame ConnectingWindow",	\
+@"NSWindow Frame SUStatusFrame",	\
+@"NSWindow Frame SUUpdateAlert",	\
+@"NSWindow Frame ListingWindow",	\
+@"detailsWindowFrameVersion",	\
+@"detailsWindowFrame",	\
+@"detailsWindowLeftFrame",	\
+@"detailsWindowViewIndex",	\
+@"detailsWindowConfigurationsTabIdentifier",	\
+@"leftNavOutlineViewExpandedDisplayNames",	\
+@"leftNavSelectedDisplayName",	\
+@"AdvancedWindowTabIdentifier",	\
+\
+@"haveDealtWithOldTunTapPreferences",	\
+@"haveDealtWithOldLoginItem",	\
+@"haveDealtWithAfterDisconnect",	\
+@"haveStartedAnUpdateOfTheApp",	\
+\
+@"SUEnableAutomaticChecks",	\
+@"SUFeedURL",	\
+@"SUScheduledCheckInterval",	\
+@"SUSendProfileInfo",	\
+@"SUAutomaticallyUpdate",	\
+@"SULastCheckTime",	\
+@"SULastProfileSubmissionDate",	\
+@"SUHasLaunchedBefore",	\
+@"SUSkippedVersion",	\
+\
+\
+@"WebKitDefaultFontSize",	\
+@"WebKitStandardFont",	\
+\
+@"ApplicationCrashedAfterRelaunch",	\
+\
+/* No longer used */	\
+@"managementPortStartingPortNumber",	\
+@"userAgreementVersionAgreedTo",	\
+@"askedUserIfOKToCheckThatIPAddressDidNotChangeAfterConnection",	\
+@"doNotShowCheckForUpdatesNowMenuItem",	\
+@"doNotShowForcedPreferenceMenuItems",	\
+@"doNotShowKeyboardShortcutSubmenu",	\
+@"doNotShowOptionsSubmenu",	\
+@"haveDealtWithSparkle1dot5b6",	\
+@"keyboardShortcutKeyCode",	\
+@"keyboardShortcutModifiers",	\
+@"maximumLogSize",	\
+@"skipWarningAboutUsingOpenvpnTxpVersion",	\
+@"skipWarningAboutUsingOpenvpnNonTxpVersion",	\
+@"skipWarningAboutNoOpenvpnTxpVersion",	\
+@"skipWarningAboutOnlyOpenvpnTxpVersion",	\
+@"skipWarningAboutReenablingInternetAccessAtExit",	\
+@"tunnelblickdHash",	\
+@"tunnelblickdPlistHash",	\
+@"updateAutomatically",	\
+@"updateSendProfileInfo",	\
+@"updateSigned",	\
+@"updateUnsigned"	\
+@"useShadowConfigurationFiles",	\
+]
+
+#define CONFIGURATIONS_PREFERENCES_NSARRAY @[ \
+@"-skipWarningAboutDownroot",	\
+@"-skipWarningAboutNoTunOrTap",	\
+@"-skipWarningUnableToToEstablishOpenVPNLink",	\
+@"-skipWarningThatCannotConnectBecauseOfOpenVPNOptions",	\
+@"-skipWarningThatNotUsingSpecifiedOpenVPN",	\
+@"-skipWarningThatCannotConnectBecauseOfOpenVPNOptionConflicts",	\
+@"autoConnect",	\
+@"-onSystemStart",	\
+@"useDNS",	\
+@"-notMonitoringConnection",	\
+@"-doNotRestoreOnDnsReset",	\
+@"-doNotRestoreOnWinsReset",	\
+@"-leasewatchOptions",	\
+@"-doNotDisconnectOnFastUserSwitch",	\
+@"-doNotReconnectOnFastUserSwitch",	\
+@"-doNotReconnectOnWakeFromSleep",	\
+@"-resetPrimaryInterfaceAfterDisconnect",	\
+@"-resetPrimaryInterfaceAfterUnexpectedDisconnect",	\
+@"-routeAllTrafficThroughVpn",	\
+@"-runMtuTest",	\
+@"-doNotFlushCache",	\
+@"-useRouteUpInsteadOfUp",	\
+@"-useDownRootPlugin",	\
+@"-keychainHasPrivateKey",	\
+@"-keychainHasUsernameAndPassword",	\
+@"-keychainHasUsername",	\
+@"-doNotParseConfigurationFile",	\
+@"-disableEditConfiguration",	\
+@"-disableConnectButton",	\
+@"-disableDisconnectButton",	\
+@"-doNotLoadTapKext",	\
+@"-doNotLoadTunKext",	\
+@"-loadTapKext",	\
+@"-loadTunKext",	\
+@"-loadTap",	\
+@"-loadTun",	\
+@"-credentialsGroup",	\
+@"-openvpnVersion",	\
+@"-notOKToCheckThatIPAddressDidNotChangeAfterConnection",	\
+@"-keepConnected",	\
+@"-doNotDisconnectOnSleep",	\
+@"-doNotUseDefaultDomain",	\
+@"-waitForDHCPInfoIfTap",	\
+@"-enableIpv6OnTap",	\
+@"-doNotDisableIpv6onTun",	\
+@"-loggingLevel",	\
+@"-allowChangesToManuallySetNetworkSettings",	\
+@"-disableNetworkAccessAfterDisconnect",	\
+@"-disableNetworkAccessAfterUnexpectedDisconnect",	\
+\
+@"-changeDNSServersAction",	\
+@"-changeDomainAction",	\
+@"-changeSearchDomainAction",	\
+@"-changeWINSServersAction",	\
+@"-changeNetBIOSNameAction",	\
+@"-changeWorkgroupAction",	\
+@"-changeOtherDNSServersAction",	\
+@"-changeOtherDomainAction",	\
+@"-changeOtherSearchDomainAction",	\
+@"-changeOtherWINSServersAction",	\
+@"-changeOtherNetBIOSNameAction",	\
+@"-changeOtherWorkgroupAction",	\
+@"-lastConnectionSucceeded",	\
+@"-tunnelDownSoundName",	\
+@"-tunnelUpSoundName",	\
+@"-doNotDisconnectWhenTunnelblickQuits",	\
+@"-prependDomainNameToSearchDomains",	\
+@"-doNotWaitForInternetAtBoot",	\
+@"-doNotReconnectOnUnexpectedDisconnect", /* This preference is NOT IMPLEMENTED and it is not in the .xib */	\
+\
+@"-doNotShowOnTunnelblickMenu",	\
+\
+/* No longer used */	\
+@"-authUsername",	\
+@"-skipWarningThatMayNotConnectInFutureBecauseOfOpenVPNOptions",	\
+@"-usernameIsSet"	\
+]
 //*************************************************************************************************
 // Comment out (with "//") the following line to EXclude the VPNService feature
 //#define INCLUDE_VPNSERVICE 1

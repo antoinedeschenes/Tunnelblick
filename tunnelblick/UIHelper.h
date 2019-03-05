@@ -1,5 +1,5 @@
 /*
- * Copyright 2015, 2016 Jonathan K. Bullard. All rights reserved.
+ * Copyright 2015, 2016, 2018 Jonathan K. Bullard. All rights reserved.
  *
  *  This file is part of Tunnelblick.
  *
@@ -37,6 +37,11 @@
 
 +(BOOL)         languageAtLaunchWasRTL;
 
++(void) performSelectorName: (NSString *) selectorName
+					 target: (id)         target
+				 withObject: (NSObject *) object
+	 onMainThreadAfterDelay: (NSTimeInterval) delay;
+
 +(CGFloat)      setTitle: (NSString *) newTitle
 			   ofControl: (id)         theControl
 			 frameHolder: (id)         frameHolder
@@ -49,6 +54,10 @@
 				   shift: (BOOL)       shift 
 				  narrow: (BOOL)       narrow
 				  enable: (BOOL)       enabled;
+
++(BOOL)			   canAcceptFileTypesInPasteboard: (NSPasteboard *) pboard;
++(NSDragOperation) draggingEntered:(id <NSDraggingInfo>)sender;
++(BOOL)			   performDragOperation:(id <NSDraggingInfo>)sender;
 
 +(void)         shakeWindow: (NSWindow *) w;
 

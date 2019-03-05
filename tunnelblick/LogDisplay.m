@@ -1,5 +1,5 @@
 /*
- * Copyright 2010, 2011, 2012, 2013, 2014, 2015, 2016 Jonathan K. Bullard. All rights reserved.
+ * Copyright 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018 Jonathan K. Bullard. All rights reserved.
  *
  *  This file is part of Tunnelblick.
  *
@@ -33,6 +33,7 @@
 #import "NSTimer+TB.h"
 #import "TBUserDefaults.h"
 #import "UKKQueue/UKKQueue.h"
+#import "VPNConnection.h"
 
 #define NUMBER_OF_LINES_TO_KEEP_AT_START_OF_LOG 10
 #define NUMBER_OF_LINES_TO_KEEP_AS_TUNNELBLICK_ENTRIES_AT_START_OF_LOG 3
@@ -156,6 +157,9 @@ TBSYNTHESIZE_OBJECT(retain, NSTimer *,              watchdogTimer,          setW
     NSMutableAttributedString * string = [[[NSMutableAttributedString alloc] initWithString: line] autorelease];
     
     NSRange lineRange = NSMakeRange(0, [line length]);
+
+	[string addAttribute: NSForegroundColorAttributeName value:[NSColor textColor]           range: lineRange];
+	[string addAttribute: NSBackgroundColorAttributeName value:[NSColor textBackgroundColor] range: lineRange];
 	
     NSRange issueRange = [line rangeOfString: @"NOTE:" options: NSCaseInsensitiveSearch];
     if (  issueRange.length != 0  ) {
@@ -177,7 +181,37 @@ TBSYNTHESIZE_OBJECT(retain, NSTimer *,              watchdogTimer,          setW
         [string addAttribute: NSBackgroundColorAttributeName value: [LogDisplay redColorForHighlighting]    range: lineRange];
     }
     
+	if (  ! warnedAboutUserGroupAlready  ) {
+		issueRange = [line rangeOfString: @"must be root to alter routing table" options: NSCaseInsensitiveSearch];
+		if (  issueRange.length != 0  ) {
+			[self performSelectorOnMainThread: @selector(warnAboutUserGroup) withObject: nil waitUntilDone: NO];
+			warnedAboutUserGroupAlready = TRUE;
+		}
+	}
+	
     return string;
+}
+
+-(void) warnAboutUserGroup {
+	
+	TBShowAlertWindow(NSLocalizedString(@"Tunnelblick", @"Window title"),
+					  attributedStringFromHTML([NSString stringWithFormat: NSLocalizedString(@"<font face=\"Helvetica,Arial,sans-serif\"><p>The network setup was not restored properly after disconnecting from %@.</p>"
+																							 @"<p>This problem is usually caused by using the 'user nobody' and/or 'group nobody' OpenVPN options.</p>"
+																							 @"<p>To restore the network setup, you should restart your computer.</p>"
+																							 @"<p>To prevent this error in the future, remove the 'user nobody' and 'group nobody' lines from your"
+																							 @" OpenVPN configuration file.</p>"
+																							 @"<p>See <a href=\"https://tunnelblick.net/cUserAndGroupOptions.html\">User and Group OpenVPN"
+																							 @" Options</a> [tunnelblick.net] for more information.</p></font>\n\n",
+																							 @"Window text. The %@ is the name of a VPN configuration."),
+												[connection localizedName]]));
+}
+
+-(void) popupAWarningForProblemSeenInLogLine: (NSString *) line {
+	
+	NSString * message = messageIfProblemInLogLine(line);
+	if (  message  ) {
+		[connection addMessageToDisplayIfConnectionFails: message];
+	}
 }
 
 -(BOOL) loggingIsDisabled {
@@ -241,6 +275,7 @@ TBSYNTHESIZE_OBJECT(retain, NSTimer *,              watchdogTimer,          setW
     for (  i=0; i < lineCount; i++) {
         NSString * singleLine = [[lines objectAtIndex: i] stringByAppendingString: @"\n"];
         [ts beginEditing];
+		[self popupAWarningForProblemSeenInLogLine: singleLine];
 		NSMutableAttributedString * string = [self attributedStringFromLine: singleLine];
 		[ts insertAttributedString: string atIndex: ix];
         [ts endEditing];
@@ -350,6 +385,8 @@ TBSYNTHESIZE_OBJECT(retain, NSTimer *,              watchdogTimer,          setW
     if (  gShuttingDownWorkspace  ) {
         return;
     }
+	
+	warnedAboutUserGroupAlready = FALSE;
     
     if (  ! [NSThread isMainThread]  ) {
         [self performSelectorOnMainThread: @selector(clear) withObject: nil waitUntilDone: NO];
@@ -987,6 +1024,7 @@ TBSYNTHESIZE_OBJECT(retain, NSTimer *,              watchdogTimer,          setW
         NSUInteger i;
         for (  i=0; i < lineCount; i++) {
             NSString * singleLine = [[lines objectAtIndex: i] stringByAppendingString: @"\n"];
+			[self popupAWarningForProblemSeenInLogLine: singleLine];
             NSMutableAttributedString * string = [self attributedStringFromLine: singleLine];
             [logStore appendAttributedString: string];
         }

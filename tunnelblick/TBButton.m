@@ -1,5 +1,5 @@
 /*
- * Copyright 2015, 2017 Jonathan K. Bullard. All rights reserved.
+ * Copyright 2015, 2017, 2018 Jonathan K. Bullard. All rights reserved.
  *
  *  This file is part of Tunnelblick.
  *
@@ -18,6 +18,8 @@
  *  59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *  or see http://www.gnu.org/licenses/.
  */
+
+// THIS FILE IS IDENTICAL TO TBButton.h except for the class and base class and the import of TBPopUpButton.h instead of TBButton.h
 
 #import "helper.h"
 #import "sharedRoutines.h"
@@ -58,10 +60,18 @@ TBSYNTHESIZE_NONOBJECT(CGFloat, minimumWidth, setMinimumWidth)
 	   infoTitle: (NSAttributedString *) infoTitle
 		disabled: (BOOL)                 disabled {
 	
+	if (  infoTitle == nil  ) {
+		NSLog(@"setTitle:%@ infoTitle:nil; call stack = %@", label, callStack());
+	}
+	
 	BOOL rtl = [UIHelper languageAtLaunchWasRTL];
 	[UIHelper setTitle: label ofControl: self frameHolder: self shift: rtl narrow: YES enable: YES];
 	
-	[self setAttributedTitle: infoTitle];
+	NSMutableAttributedString * infoTitleAS = [[infoTitle mutableCopy] autorelease];
+	[infoTitleAS addAttribute: NSForegroundColorAttributeName value:[NSColor textColor]           range: NSMakeRange(0, [infoTitleAS length])];
+	[infoTitleAS addAttribute: NSBackgroundColorAttributeName value:[NSColor textBackgroundColor] range: NSMakeRange(0, [infoTitleAS length])];
+	
+	[self setAttributedTitle: infoTitleAS];
 	[self setMinimumWidth: 360.0];
 	[self setEnabled: ! disabled];
 }

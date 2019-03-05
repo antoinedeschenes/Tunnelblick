@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, 2012, 2013, 2014, 2015, 2016 Jonathan K. Bullard. All rights reserved.
+ * Copyright 2011, 2012, 2013, 2014, 2015, 2016, 2018 Jonathan K. Bullard. All rights reserved.
  *
  *  This file is part of Tunnelblick.
  *
@@ -79,6 +79,9 @@
     IBOutlet NSNumber            * selectedAppearanceIconSetIndex;
     IBOutlet NSNumber            * selectedAppearanceConnectionWindowDisplayCriteriaIndex;
     IBOutlet NSNumber            * selectedAppearanceConnectionWindowScreenIndex;
+	
+	// For UtilitiesView
+	BOOL						   cancelUtilitiesQuitAllOpenVpn;
 }
 
 
@@ -91,8 +94,8 @@
 
 -(void) indicateWaitingForLogDisplay:                         (VPNConnection *) theConnection;
 -(void) indicateNotWaitingForConsoleLogToClipboard;
+-(void) indicateNotWaitingForUtilitiesExportTunnelblickSetup;
 -(void) indicateNotWaitingForDiagnosticInfoToClipboard;
--(void) indicateNotWaitingForKillAllOpenVPN;
 -(void) indicateNotWaitingForLogDisplay:                      (VPNConnection *) theConnection;
 -(void) hookedUpOrStartedConnection:                          (VPNConnection *) theConnection;
 -(void) lockTheLockIcon;
@@ -135,7 +138,6 @@
 -(IBAction) monitorNetworkForChangesCheckboxWasClicked:             (NSButton *) sender;
 -(IBAction) routeAllTrafficThroughVpnCheckboxWasClicked:            (NSButton *) sender;
 -(IBAction) checkIPAddressAfterConnectOnAdvancedCheckboxWasClicked: (NSButton *) sender;
--(IBAction) resetPrimaryInterfaceAfterDisconnectCheckboxWasClicked: (NSButton *) sender;
 -(IBAction) disableIpv6OnTunCheckboxWasClicked:                     (NSButton *) sender;
 
 -(IBAction) whenToConnectManuallyMenuItemWasClicked:          (id) sender;
@@ -151,7 +153,6 @@
 -(IBAction) generalAdminApprovalForKeyAndCertificateChangesCheckboxWasClicked: (NSButton *) sender;
 -(IBAction) updatesCheckAutomaticallyCheckboxWasClicked:         (NSButton *) sender;
 -(IBAction) updatesCheckForBetaUpdatesCheckboxWasClicked:        (NSButton *) sender;
--(IBAction) updatesSendProfileInfoCheckboxWasClicked:            (NSButton *) sender;
 -(IBAction) updatesCheckNowButtonWasClicked:                     (id) sender;
 
 -(IBAction) resetDisabledWarningsButtonWasClicked:        (id) sender;
@@ -181,11 +182,13 @@
 
 // Methods for UtiltiesView
 
--(IBAction) utilitiesKillAllOpenVpnButtonWasClicked:      (id) sender;
+-(IBAction) utilitiesQuitAllOpenVpnButtonWasClicked:      (id) sender;
 
 -(IBAction) utilitiesRunEasyRsaButtonWasClicked:          (id) sender;
 
 -(IBAction) consoleLogToClipboardButtonWasClicked:        (id) sender;
+
+-(IBAction) utilitiesExportTunnelblickSetupButtonWasClicked: (id) sender;
 
 -(IBAction) utilitiesHelpButtonWasClicked:                (id) sender;
 

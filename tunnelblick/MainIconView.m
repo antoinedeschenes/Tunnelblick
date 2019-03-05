@@ -1,5 +1,5 @@
 /*
- * Copyright 2012, 2013, 2015, 2016 Jonathan K. Bullard. All rights reserved.
+ * Copyright 2012, 2013, 2015, 2016, 2017, 2018 Jonathan K. Bullard. All rights reserved.
  *
  *  This file is part of Tunnelblick.
  *
@@ -24,6 +24,7 @@
 
 #import "MenuController.h"
 #import "TBUserDefaults.h"
+#import "UIHelper.h"
 
 extern  TBUserDefaults * gTbDefaults;
 extern BOOL              gShuttingDownWorkspace;
@@ -40,6 +41,8 @@ extern BOOL              gShuttingDownWorkspace;
     if (  gShuttingDownWorkspace  ) {
         return;
     }
+	
+	[(MenuController *)[NSApp delegate] recreateMainMenuClearCache: NO];
     
 	// Detect a triple-click:
 	//        First click comes here and pops up the menu
@@ -81,6 +84,15 @@ extern BOOL              gShuttingDownWorkspace;
           trackingRect.origin.x, trackingRect.origin.y, trackingRect.size.width, trackingRect.size.height)
 }
 
+-(void) drawRect: (NSRect) rect
+{
+    NSStatusItem * statusI = [((MenuController *)[NSApp delegate]) statusItem];
+    BOOL menuIsOpen = [((MenuController *)[NSApp delegate]) menuIsOpen];
+    [statusI drawStatusBarBackgroundInRect: rect withHighlight: menuIsOpen];
+    
+    [super drawRect: rect];
+}
+
 
 // *******************************************************************************************
 // init and dealloc
@@ -114,62 +126,17 @@ extern BOOL              gShuttingDownWorkspace;
 
 -(BOOL) canAcceptFileTypesInPasteboard: (NSPasteboard *) pboard {
     
-    NSArray * acceptedExtensions = [NSArray arrayWithObjects: @"ovpn", @"conf", @"tblk", nil];
-    
-    NSString * type = [pboard availableTypeFromArray: [NSArray arrayWithObject: NSFilenamesPboardType]];
-    if (  ! [type isEqualToString: NSFilenamesPboardType]  ) {
-        TBLog(@"DB-SI", @"MainIconView/acceptedExtensions: returning NO because no 'NSFilenamesPboardType' entries are available in the pasteboard.");
-        return NO;
-    }
-    
-    NSArray * paths = [pboard propertyListForType: NSFilenamesPboardType];
-    NSUInteger i;
-    for (  i=0; i<[paths count]; i++  ) {
-        NSString * path = [paths objectAtIndex:i];
-        if (  ! [acceptedExtensions containsObject: [path pathExtension]]  ) {
-            TBLog(@"DB-SI", @"MainIconView/acceptedExtensions: returning NO for '%@' in '%@'", [path lastPathComponent], [path stringByDeletingLastPathComponent]);
-            return NO;
-        } else {
-            TBLog(@"DB-SI", @"MainIconView/acceptedExtensions: acceptable: '%@' in '%@'", [path lastPathComponent], [path stringByDeletingLastPathComponent]);
-        }
-    }
-    
-    return YES;
+	return [UIHelper canAcceptFileTypesInPasteboard: pboard ];
 }
 
 - (NSDragOperation)draggingEntered:(id <NSDraggingInfo>)sender {
-    
-    NSDragOperation sourceDragMask = [sender draggingSourceOperationMask];
-    NSPasteboard * pboard = [sender draggingPasteboard];
-    
-    if (  [[pboard types] containsObject: NSFilenamesPboardType]  ) {
-        if (  [self canAcceptFileTypesInPasteboard: pboard]  ) {
-            if (  sourceDragMask & NSDragOperationCopy  ) {
-                TBLog(@"DB-SI", @"MainIconView/draggingEntered: returning YES");
-                return NSDragOperationCopy;
-            } else {
-                TBLog(@"DB-SI", @"MainIconView/draggingEntered: returning NO because source does not allow copy operation");
-            }
-        }
-    }
-    
-    TBLog(@"DB-SI", @"MainIconView/draggingEntered: returning NO");
-    return NSDragOperationNone;
+
+	return [UIHelper draggingEntered: sender];
 }
 
 - (BOOL)performDragOperation:(id <NSDraggingInfo>)sender {
     
-    NSPasteboard *pboard = [sender draggingPasteboard];
-    
-    if ( [[pboard types] containsObject: NSFilenamesPboardType] ) {
-        NSArray * files = [pboard propertyListForType:NSFilenamesPboardType];
-        [((MenuController *)[NSApp delegate]) performSelectorOnMainThread: @selector(openFiles:) withObject: files waitUntilDone: NO];
-        TBLog(@"DB-SI", @"MainIconView/performDragOperation: returning YES");
-        return YES;
-    }
-    
-    TBLog(@"DB-SI", @"MainIconView/performDragOperation: returning NO because pasteboard does not contain 'NSFilenamesPboardType'");
-    return NO;
+	return [UIHelper performDragOperation: sender];
 }
 
 // *******************************************************************************************

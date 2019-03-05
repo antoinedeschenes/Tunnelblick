@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 Jonathan K. Bullard
+ * Copyright 2016, 2018 Jonathan K. Bullard
  *
  *  This file is part of Tunnelblick.
  *
@@ -162,7 +162,7 @@ TBSYNTHESIZE_OBJECT(retain, NSString *, prompt, setPrompt)
     //       1. The reactivation creates a system thread to do the work.
     //       2. The user cancels the installation, which terminates this instance of Tunnelblick.
     //       3. The reactivation thread reactivates Tunnelblick by creating a new instance of Tunnelblick.
-    //          (On some versions of OS X, this just causes a failure in the reactivation thread and logs messages about that.)
+    //          (On some versions of macOS, this just causes a failure in the reactivation thread and logs messages about that.)
     
     if (   interactionAllowed
         && reactivationAllowed  ) {
@@ -225,7 +225,8 @@ TBSYNTHESIZE_OBJECT(retain, NSString *, prompt, setPrompt)
     allowReactivation = reactivateOk;
     
     if (  [SystemAuth haveValidLockSystemAuth ] ) {
-        NSString * expandedPrompt = [NSString stringWithFormat: @"%@\n\n Note: Tunnelblick is in administrator mode, so a computer administrator username and password are not required.", prompt];
+        NSString * expandedPrompt = [NSString stringWithFormat: NSLocalizedString(@"%@\n\n Note: Tunnelblick is in administrator mode, so a computer administrator's authorization is not required.",
+																				  @"Window text. The '%@' at the beginning is a separately translated string that describes an action that is to be taken."), prompt];
         int result = TBRunAlertPanelExtended(NSLocalizedString(@"Tunnelblick", @"Window title"),
                                              expandedPrompt,
                                              NSLocalizedString(@"OK", @"Button"),     // Default button
@@ -329,7 +330,7 @@ TBSYNTHESIZE_OBJECT(retain, NSString *, prompt, setPrompt)
                                         reactivationAllowed: NO];
         if (  status == errAuthorizationSuccess  ) {
             TBLog(@"DB-AA", @"SystemAuth|authRef: returning authRef from lock");
-            NSLog(@"Authorizing an operation without admin username/password because Tunnelblick is in administrator mode");
+            NSLog(@"Authorizing an operation without a new admin authorization because Tunnelblick is in administrator mode");
             return lockRef;
         }
         

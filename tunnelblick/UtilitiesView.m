@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, 2012, 2013, 2014, 2015, 2017 Jonathan K. Bullard. All rights reserved.
+ * Copyright 2011, 2012, 2013, 2014, 2015, 2017, 2018 Jonathan K. Bullard. All rights reserved.
  *
  *  This file is part of Tunnelblick.
  *
@@ -25,6 +25,7 @@
 #import "easyRsa.h"
 #import "helper.h"
 
+#import "MenuController.h"
 #import "NSFileManager+TB.h"
 #import "TBButton.h"
 #import "TBUserDefaults.h"
@@ -54,15 +55,45 @@ extern TBUserDefaults * gTbDefaults;
 	(void) dirtyRect;
 }
 
+-(void) setUtilitiesQuitAllOpenVpnButtonTitle: (NSString *) title {
+	
+	// Set the button's title and adjust the size of the button.
+	// If its width changes, shift the button and/or the status text next to it appropriately
+	
+	CGFloat oldWidth = [utilitiesQuitAllOpenVpnButton frame].size.width;
+	[utilitiesQuitAllOpenVpnButton setTitle: title];
+	[utilitiesQuitAllOpenVpnButton sizeToFit];
+	CGFloat newWidth = [utilitiesQuitAllOpenVpnButton frame].size.width;
+	CGFloat widthChange = oldWidth - newWidth;
+	
+	if (  [(MenuController *)[NSApp delegate] languageAtLaunchWasRTL]  ) {
+		widthChange = -widthChange;
+
+		NSRect f = [utilitiesQuitAllOpenVpnButton frame];	// Shift the button itself
+		f.origin.x -= widthChange;
+		[utilitiesQuitAllOpenVpnButton setFrame: f];
+	}
+	
+	NSRect f = [utilitiesQuitAllOpenVpnStatusTF frame];		// Shift the status text next to the button
+	f.origin.x -= widthChange;
+	[utilitiesQuitAllOpenVpnStatusTF setFrame: f];
+}
+
 -(void) awakeFromNib
 {
-	[utilitiesKillAllOpenVpnButton
+	[utilitiesQuitAllOpenVpnStatusTFC setTitle: @""];
+	
+	// SET ONE BUTTON TITLE HERE **FIRST** so it adjusts the position of the status text, too.
+	// Then when we set it to the same thing (a couple of lines down), it doesn't change its width
+	[self setUtilitiesQuitAllOpenVpnButtonTitle: NSLocalizedString(@"Quit All OpenVPN Processes", @"Button")];
+
+	[utilitiesQuitAllOpenVpnButton
 	  setTitle: NSLocalizedString(@"Quit All OpenVPN Processes", @"Button")
 	 infoTitle: attributedStringFromHTML(NSLocalizedString(@"<p>Quits all OpenVPN processes, including those which were not"
 														   @" started by Tunnelblick. You should use the Tunnelblick 'Disconnect' or 'Disconnect All' buttons and menu commands to disconnect"
 														   @" configurations which were connected using Tunnelblick.</p>"
 														   @"<p>Clicking this button sends a 'SIGTERM' signal to all processes named 'openvpn'. Normally this will cause OpenVPN to close all"
-														   @" connections and quit. If this button does not quit all OpenVPN processes, you may need to use the OS X Activity Monitor"
+														   @" connections and quit. If this button does not quit all OpenVPN processes, you may need to use the macOS Activity Monitor"
 														   @" application to 'Force Quit' the process.</p>",
 														   @"HTML info for the 'Quit All OpenVPN Processes' button."))
 	 disabled: ! ALLOW_OPENVPNSTART_KILLALL];
@@ -74,6 +105,14 @@ extern TBUserDefaults * gTbDefaults;
 														   @" and detailed error messages that are too long to present to the user in a normal dialog window.</p>",
 														   @"HTML info for the 'Copy Console Log to Clipboard' button."))];
 	
+	[utilitiesExportTunnelblickSetupButton
+	  setTitle: NSLocalizedString(@"Export Tunnelblick Setup", @"Button")
+	 infoTitle: attributedStringFromHTML(NSLocalizedString(@"<p>Exports the Tunnelblick setup, including all configurations and settings"
+														   @" for all users of this computer, to a compressed file on the Desktop.</p>"
+														   @"<ul><li>Credentials saved in the Keychain are <strong>not</strong> exported.</li>"
+														   @"<li>The export may take a long time.</li></ul>",
+														   @"HTML info for the 'Export Tunnelblick Setup' button."))];
+	
 	[utilitiesOpenUninstallInstructionsButton
 	  setTitle: NSLocalizedString(@"Open Uninstall Instructions in Browser", @"Button")
 	 infoTitle: attributedStringFromHTML(NSLocalizedString(@"<p>Opens a browser window containing information on the Tunnelblick website about uninstalling Tunnelblick.</p>",
@@ -82,7 +121,7 @@ extern TBUserDefaults * gTbDefaults;
 	[utilitiesRunEasyRsaButton
 	  setTitle: NSLocalizedString(@"Open easy-rsa in Terminal", @"Button")
 	 infoTitle: attributedStringFromHTML(NSLocalizedString(@"<p>Tunnelblick includes a customized version of 'easy-rsa', which is a set of command line scripts written by the OpenVPN developers for creating and maintaining certificates and keys.</p>"
-														   @"<p>Clicking this button launches the OS X Terminal application with the working directory set to the folder containing the scripts.</p>"
+														   @"<p>Clicking this button launches the macOS Terminal application with the working directory set to the folder containing the scripts.</p>"
 														   @"<p>The scripts are normally located in the folder at ~/Library/Application Support/Tunnelblick/easy-rsa. An 'easy-rsaPath' preference can contain the path to a folder that Tunnelblick will use instead."
 														   @" 'easy-rsaPath' must be an absolute path or start with a '~', and the parent folder of the path must exist. If a folder exists at the path, it will be used;"
 														   @" if it does not exist, it will be created and the easy-rsa scripts will be installed into it when Tunnelblick is launched.</p>"
@@ -104,14 +143,45 @@ extern TBUserDefaults * gTbDefaults;
     [utilitiesEasyRsaPathTFC setTitle: easyRsaPathMessage];
 }
 
+-(void) clearUtilitiesQuitAllOpenvpnStatusText: (NSTimer *) timer {
+
+	(void) timer;
+	
+	[utilitiesQuitAllOpenvpnStatusTextTimer release];
+	utilitiesQuitAllOpenvpnStatusTextTimer = nil;
+
+	[[self utilitiesQuitAllOpenVpnStatusTFC] setTitle: @""];
+}
+
+-(void) setUtilitiesQuitAllOpenvpnStatusText: (NSString *) text {
+	
+	// Sets the status text, then (if it is not empty) clears it fives seconds later.
+	
+	[utilitiesQuitAllOpenVpnStatusTFC setTitle: text];
+	
+	[utilitiesQuitAllOpenvpnStatusTextTimer invalidate];
+	[utilitiesQuitAllOpenvpnStatusTextTimer release];
+	utilitiesQuitAllOpenvpnStatusTextTimer = nil;
+	utilitiesQuitAllOpenvpnStatusTextTimer = [[NSTimer scheduledTimerWithTimeInterval: 5.0
+																			   target: self
+																			 selector: @selector(clearUtilitiesQuitAllOpenvpnStatusText:)
+																			 userInfo: nil
+																			  repeats: NO]
+											  retain];
+}
+
 //***************************************************************************************************************
 // Getters
 
-TBSYNTHESIZE_OBJECT_GET(retain, NSButton *,            utilitiesKillAllOpenVpnButton)
-TBSYNTHESIZE_OBJECT_GET(retain, NSProgressIndicator *, killAllOpenVPNProgressIndicator)
+TBSYNTHESIZE_OBJECT_GET(retain, NSButton *,            utilitiesQuitAllOpenVpnButton)
+TBSYNTHESIZE_OBJECT_GET(retain, NSTextFieldCell *,	   utilitiesQuitAllOpenVpnStatusTFC)
+TBSYNTHESIZE_OBJECT_GET(retain, NSTextField *,		   utilitiesQuitAllOpenVpnStatusTF)
 
 TBSYNTHESIZE_OBJECT_GET(retain, NSButton *,            consoleLogToClipboardButton)
 TBSYNTHESIZE_OBJECT_GET(retain, NSProgressIndicator *, consoleLogToClipboardProgressIndicator)
+
+TBSYNTHESIZE_OBJECT_GET(retain, NSButton *,            utilitiesExportTunnelblickSetupButton)
+TBSYNTHESIZE_OBJECT_GET(retain, NSProgressIndicator *, utilitiesExportTunnelblickSetupProgressIndicator)
 
 TBSYNTHESIZE_OBJECT_GET(retain, NSButton *,          utilitiesOpenUninstallInstructionsButton)
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2012, 2013, 2014, 2015, 2016 Jonathan K. Bullard. All rights reserved.
+ * Copyright 2012, 2013, 2014, 2015, 2016, 2018 Jonathan K. Bullard. All rights reserved.
  *
  *  This file is part of Tunnelblick.
  *
@@ -270,6 +270,24 @@ TBSYNTHESIZE_OBJECT_GET(retain, NSString *, nameForErrorMessages)
 }
 
 -(NSMutableArray *) getTokens {
+
+	// These are the OpenVPN options that can be used to insert the contents of a file inline. The array is used to skip over the
+	// contents of such inlined files. All such contents are UTF-8 or ASCII. (Because the contents of a pkcs12 file must be encoded
+	// in base 64, the contents are always ASCII.)
+	NSArray * inlineOptions = @[@"<ca>",
+								@"<cert>",
+								@"<crl-verify>",
+								@"<dh>",
+								@"<extra-certs>",
+								@"<http-proxy-user-pass>",
+								@"<key>",
+								@"<pkcs12>",
+								@"<secret>",
+								@"<tls-auth>",
+								@"<tls-crypt>",
+								@"<tls-crypt-v2>"
+								];
+	
 	NSMutableArray * arr = [NSMutableArray arrayWithCapacity: 300];
 	
 	inputIx = 0;
@@ -294,6 +312,40 @@ TBSYNTHESIZE_OBJECT_GET(retain, NSString *, nameForErrorMessages)
 			[arr addObject: [[[ConfigurationToken alloc] initWithRange: r
                                                               inString: configString
                                                             lineNumber: lineNum] autorelease]];
+		}
+		
+		// Skip lines that are between "<ca>" and "</ca>", "<cert>" and "</cert>", etc.
+		// We use a list of options that can be in angle brackets because we do not want to process "<connect>" and similar
+		// configuration file directives that should not be skipped because they contain OpenVPN options that should be parsed.
+
+		// Look for "<something-on-the-list>\n", preceded by "\n" unless it appears at the start of a configuration file
+		if (   ([arr count] > 1)
+			&& [[[arr lastObject] stringValue] isEqualToString: @"\n"]
+			&&     [inlineOptions containsObject: [[arr objectAtIndex: [arr count] - 2] stringValue]]
+			&& (   ( [arr count] == 2 )
+				|| [[[arr objectAtIndex: [arr count] - 3] stringValue] isEqualToString: @"\n"]
+				)
+			) {
+
+			// Have started an inline cert or key with "<abc>\n", tokenized as "<abc>" and "\n".
+			//Skip everything up to but not including the "</abc>" that closes the inline cert or key
+			NSString * startTag = [[arr objectAtIndex: [arr count] - 2] stringValue];
+			NSMutableString * endTag = [[startTag mutableCopy] autorelease];
+			[endTag insertString: @"/" atIndex: 1];
+			r = NSMakeRange(inputIx, [configString length] - inputIx);
+			r = [configString rangeOfString: endTag options: 0 range: r];
+			if (  r.location == NSNotFound  ) {
+				[self logMessage: [NSString stringWithFormat: @"'%@' at line %u was not terminated properly", startTag, lineNum - 1]
+					   localized: [NSString stringWithFormat: NSLocalizedString(@"'%@' at line %u was not terminated properly", @"Window text"), startTag, lineNum - 1]];
+				return nil;
+			}
+			// Update lineNum to reflect the lines that we skipped between inputIx and r.location
+			// Update inputIx to the start of "</abc>" (r.location)
+			while (  inputIx < r.location  ) {
+				if (  [[configString substringWithRange: NSMakeRange(inputIx++, 1)] isEqualToString: @"\n"]  ) {
+					lineNum++;
+				}
+			}
 		}
 	}
 	
@@ -375,6 +427,7 @@ TBSYNTHESIZE_OBJECT_GET(retain, NSString *, nameForErrorMessages)
     //
     //      Other files
     //            * Cannot start with "{" (which indicates a "rich text format" file
+	//			  * Must be in UTF-8 format
     //            * Script and configuration files (.sh, .conf, .ovpn) cannot contain CR characters but that problem is fixed when copying the files
     //            * Key/certificate files cannot contain non-ASCII characters
     
@@ -398,24 +451,36 @@ TBSYNTHESIZE_OBJECT_GET(retain, NSString *, nameForErrorMessages)
         }
     }
     
-    // Check for RTF files
-    const unsigned char * chars = [data bytes];
+	// Get file contents as a NUL-terminated string and make sure it contains no NUL characters
+	NSMutableData * mData = [[data mutableCopy] autorelease];
+	[mData appendBytes: "\0" length: 1];
+	const unsigned char * chars = [mData bytes];
+	if (  strlen( (char *)chars ) != [mData length] - 1  ) {
+		return [self logMessage: [NSString stringWithFormat: @"File '%@' contains one or more NUL characters.", path]
+					  localized: [NSString stringWithFormat: NSLocalizedString(@"File '%@' contains one or more NUL characters.", @"Window text"), [path lastPathComponent]]];
+	}
+
+	// Check for RTF files
     if (   chars[0] == '{'  ) {
-        return [self logMessage: [NSString stringWithFormat: @"File '%@' appears to be in 'rich text' format because it starts with a '{' character. All OpenVPN-related files must be 'plain text' or 'UTF-8' files.", path]
-                      localized: [NSString stringWithFormat: NSLocalizedString(@"File '%@' appears to be in 'rich text' format because it starts with a '{' character. All OpenVPN-related files must be 'plain text' or 'UTF-8' files.", @"Window text"), [path lastPathComponent]]];
+        return [self logMessage: [NSString stringWithFormat: @"File '%@' appears to be in rich text format because it starts with a '{' character. All OpenVPN-related files must be plain text or UTF-8 files.", path]
+                      localized: [NSString stringWithFormat: NSLocalizedString(@"File '%@' appears to be in rich text format because it starts with a '{' character. All OpenVPN-related files must be plain text or UTF-8 files.", @"Window text"), [path lastPathComponent]]];
     }
     
-    // OpenVPN configuration files can be UTF-8 or UTF-16, so don't test them
+    // OpenVPN configuration files must be UTF-8
     if (   [ext isEqualToString: @"ovpn"]
         || [ext isEqualToString: @"conf"]  ) {
+		if (  [NSString stringWithUTF8String: (const char *)chars] == NULL  ) {
+			return [self logMessage: [NSString stringWithFormat: @"'%@' is not a plain text or UTF-8 file.", path]
+						  localized: [NSString stringWithFormat: NSLocalizedString(@"'%@' is not a plain text or UTF-8 file.", @"Window text. %@ is the name of a file."), [path lastPathComponent]]];
+		}
         return nil;
     }
     
     // Check for UTF-16 files
     if (   (   (chars[0] == 0xFF) && (chars[1] == 0xFE))
         || (   (chars[0] == 0xFE) && (chars[1] == 0xFF))  ) {
-        return [self logMessage: [NSString stringWithFormat: @"File '%@' appears to be UTF-16 encoded. All OpenVPN-related files must be plain text or UTF-8 files.", path]
-                      localized: [NSString stringWithFormat: NSLocalizedString(@"File '%@' appears to be UTF-16 encoded. All OpenVPN-related files must be plain text or UTF-8 files.", @"Window text"), [path lastPathComponent]]];
+        return [self logMessage: [NSString stringWithFormat: @"'%@' appears to be a file encoded with UTF-16. All OpenVPN-related files must be plain text or UTF-8 files.", path]
+                      localized: [NSString stringWithFormat: NSLocalizedString(@"'%@' appears to be a file encoded with UTF-16. All OpenVPN-related files must be plain text or UTF-8 files", @"Window text. %@ is the name of a file."), [path lastPathComponent]]];
     }
     
 	// Don't test anything else in a script file because it is checked elsewhere for CR characters, which are the only characters that are not allowed
@@ -494,6 +559,10 @@ TBSYNTHESIZE_OBJECT_GET(retain, NSString *, nameForErrorMessages)
 		}
 		
 		NSMutableString * contents = [[[NSMutableString alloc] initWithData: data encoding: NSUTF8StringEncoding] autorelease];
+		if (  contents == nil  ) {
+			return [self logMessage: [NSString stringWithFormat: @"Unable to load contents of %@ as UTF-8", source]
+						  localized: [NSString stringWithFormat: NSLocalizedString(@"Unable to load contents of %@ as UTF-8", @"Window text"), source]];
+		}
 		
 		if (  [self removeOrReplaceCRs: contents]  ) {
 			if (  [contents writeToFile: target atomically: YES encoding: NSUTF8StringEncoding error: NULL]  ) {
@@ -728,10 +797,14 @@ TBSYNTHESIZE_OBJECT_GET(retain, NSString *, nameForErrorMessages)
 		
         mode_t perms = (  isOnRemoteVolume(outPath)
                         ? (  [[outPath pathExtension] isEqualToString: @"sh"]
-                           ? PERMS_PRIVATE_REMOTE_SCRIPT
+                           ? (  shouldRunScriptAsUserAtPath(outPath)
+							  ? PERMS_PRIVATE_REMOTE_USER_SCRIPT
+							  : PERMS_PRIVATE_REMOTE_ROOT_SCRIPT)
                            : PERMS_PRIVATE_REMOTE_OTHER)
                         : (  [[outPath pathExtension] isEqualToString: @"sh"]
-                           ? PERMS_PRIVATE_SCRIPT
+						   ? (  shouldRunScriptAsUserAtPath(outPath)
+							  ? PERMS_PRIVATE_USER_SCRIPT
+							  : PERMS_PRIVATE_ROOT_SCRIPT)
                            : PERMS_PRIVATE_OTHER)
                         );
 		if (  ! checkSetPermissions(outPath, perms, YES)  ) {
@@ -822,6 +895,7 @@ TBSYNTHESIZE_OBJECT_GET(retain, NSString *, nameForErrorMessages)
 				}
 				
 			} else if (   itemIsVisible(fullPath)
+					   && ( ! isAGoogleDriveIconFile(fullPath) )
 					   && ( ! [extensionsToIgnore containsObject: ext] )
 					   && [gFileMgr fileExistsAtPath: fullPath isDirectory: &isDir]
 					   && ( ! isDir )  ) {
@@ -1125,6 +1199,8 @@ TBSYNTHESIZE_OBJECT_GET(retain, NSString *, nameForErrorMessages)
 								 @"crl-verify",                    // Optional 'direction' argument
 								 @"secret",                        // Optional 'direction' argument
 								 @"tls-auth",                      // Optional 'direction' argument
+								 @"tls-crypt",
+								 @"tls-crypt-v2",
 								 nil];
     
     // List of OpenVPN options that take a command
@@ -1157,6 +1233,8 @@ TBSYNTHESIZE_OBJECT_GET(retain, NSString *, nameForErrorMessages)
                                  @"<pkcs12>",
                                  @"<secret>",
                                  @"<tls-auth>",
+                                 @"<tls-crypt>",
+                                 @"<tls-crypt-v2>",
                                  nil];
     
     NSArray * endInlineKeys = [NSArray arrayWithObjects:
@@ -1168,6 +1246,8 @@ TBSYNTHESIZE_OBJECT_GET(retain, NSString *, nameForErrorMessages)
                                @"</pkcs12>",
                                @"</secret>",
                                @"</tls-auth>",
+                               @"</tls-crypt>",
+							   @"</tls-crypt-v2>",
                                nil];
     
     // List of OpenVPN options that cannot appear in a Tunnelblick VPN Configuration unless the file they reference has an absolute path
@@ -1214,8 +1294,8 @@ TBSYNTHESIZE_OBJECT_GET(retain, NSString *, nameForErrorMessages)
 			}
             
             if (  [optionsThatAreNotAllowedOnOSX containsObject: [firstToken stringValue]]  ) {
-				return [self logMessage: [NSString stringWithFormat: @"The '%@' OpenVPN option is not allowed on OS X. It is a 'Windows only' option.", [firstToken stringValue]]
-                              localized: [NSString stringWithFormat: NSLocalizedString(@"The '%@' OpenVPN option is not allowed on OS X. It is a 'Windows only' option.", @"Window text"), [firstToken stringValue]]];
+				return [self logMessage: [NSString stringWithFormat: @"The '%@' OpenVPN option is not allowed on macOS. It is a 'Windows only' option.", [firstToken stringValue]]
+                              localized: [NSString stringWithFormat: NSLocalizedString(@"The '%@' OpenVPN option is not allowed on macOS. It is a 'Windows only' option.", @"Window text"), [firstToken stringValue]]];
 			}
             
             if (  [optionsWithPath containsObject: [firstToken stringValue]]  ) {
@@ -1361,6 +1441,11 @@ TBSYNTHESIZE_OBJECT_GET(retain, NSString *, nameForErrorMessages)
                                      [NSNumber numberWithUnsignedLong: permissions],              NSFilePosixPermissions,
                                      nil];
         const char * bytes = [configString UTF8String];
+		if (  bytes == NULL) {
+			return [self logMessage: @"Unable to parse configuration file as UTF-8 (#1)"
+						  localized: NSLocalizedString(@"Unable to parse configuration file as UTF-8", @"Window text")];
+		}
+
         if (  [gFileMgr createFileAtPath: outputConfigPath
                                 contents: [NSData dataWithBytes: bytes
                                                          length: strlen(bytes)]
@@ -1375,6 +1460,10 @@ TBSYNTHESIZE_OBJECT_GET(retain, NSString *, nameForErrorMessages)
         FILE * outFile = fopen([configPath fileSystemRepresentation], "w");
         if (  outFile  ) {
             const char * bytes = [configString UTF8String];
+			if (  bytes == NULL) {
+				return [self logMessage: @"Unable to parse configuration file as UTF-8 (#2)"
+							  localized: NSLocalizedString(@"Unable to parse configuration file as UTF-8", @"Window text")];
+			}
 			if (  fwrite(bytes, strlen(bytes), 1, outFile) != 1  ) {
 				return [self logMessage: @"Unable to write to configuration file for modification"
                               localized: NSLocalizedString(@"Unable to write to configuration file for modification", @"Window text")];
@@ -1399,13 +1488,18 @@ TBSYNTHESIZE_OBJECT_GET(retain, NSString *, nameForErrorMessages)
     
     // String with a list of options that are "safe" in that they do not invoke a command or script.
     
-    // Option list was last updated from options.c in git master 0e591a2 (2015-12-27)
+    // Option list was last updated from options.c in Openvpn 2.4.4 (2017-09-26)
+	//
+	// Added 2018-07-26:
+	//		route-ipv6-gateway (for Tunnelblick commit ed2e1d5bcdbfb8d2b0c56825021fdc5c2c7160a1)
     
     static NSString * allowedOptions =
     @"|"
     @"allow-nonadmin|"
     @"allow-pull-fqdn|"
+	@"allow-recursive-routing|"
     @"askpass|"
+	@"auth-gen-token|"
     @"auth-nocache|"
     @"auth-retry|"
     @"auth-token|"
@@ -1477,6 +1571,7 @@ TBSYNTHESIZE_OBJECT_GET(retain, NSString *, nameForErrorMessages)
     @"http-proxy-override|"
     @"http-proxy-retry|"
     @"http-proxy-timeout|"
+	@"http-proxy-user-pass|"
     @"http-proxy|"
     @"ifconfig-ipv6-pool|"
     @"ifconfig-ipv6-push|"
@@ -1536,6 +1631,7 @@ TBSYNTHESIZE_OBJECT_GET(retain, NSString *, nameForErrorMessages)
     @"mktun|"
     @"mlock|"
     @"mode|"
+	@"msg-channel|"
     @"mssfix|"
     @"mtu-disc|"
     @"mtu-dynamic|"
@@ -1543,6 +1639,8 @@ TBSYNTHESIZE_OBJECT_GET(retain, NSString *, nameForErrorMessages)
     @"multihome|"
     @"mute-replay-warnings|"
     @"mute|"
+	@"ncp-ciphers|"
+	@"ncp-disable|"
     @"nice|"
     @"no-iv|"
     @"no-name-remapping|"
@@ -1579,7 +1677,9 @@ TBSYNTHESIZE_OBJECT_GET(retain, NSString *, nameForErrorMessages)
     @"proto|"
     @"pull|"
     @"push-continuation|"
+	@"pull-filter|"
     @"push-peer-info|"
+	@"push-remove|"
     @"push-reset|"
     @"push|"
     @"rcvbuf|"
@@ -1604,6 +1704,7 @@ TBSYNTHESIZE_OBJECT_GET(retain, NSString *, nameForErrorMessages)
     @"route-delay|"
     @"route-gateway|"
     @"route-ipv6|"
+    @"route-ipv6-gateway|"
     @"route-method|"
     @"route-metric|"
     @"route-noexec|"
@@ -1653,6 +1754,8 @@ TBSYNTHESIZE_OBJECT_GET(retain, NSString *, nameForErrorMessages)
     @"tls-auth|"
     @"tls-cipher|"
     @"tls-client|"
+    @"tls-crypt|"
+	@"tls-crypt-v2|"
     @"tls-exit|"
     @"tls-export-cert|"
     @"tls-remote|"
