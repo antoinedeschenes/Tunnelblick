@@ -3916,7 +3916,11 @@ static pthread_mutex_t lastStateMutex = PTHREAD_MUTEX_INITIALIZER;
             }else{
                 NSString *rsasig = [NSString stringWithFormat:@"rsa-sig\n%s\nEND\n", rsa_sig_b64];
                 [managementSocket writeString:rsasig encoding:NSASCIIStringEncoding];
-            }
+            }	    
+        } else if ([command isEqualToString:@"INFO"]) {
+            [self addToLog: line];
+        } else {
+            TBLog(@"DB-AU", @"Ignored unrecognized message from management interface for %@: %@", [self displayName], line);
         }
     }
 }
